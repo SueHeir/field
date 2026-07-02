@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/field_core",
+    "crates/field_derive",
+    "crates/field_amr",
+    "crates/field_p4est",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/SueHeir/field"
+
+# Local path dependencies on the GRASS framework (sibling checkout). Mirrors how
+# DIRT path-patches SOIL during local development.
+[workspace.dependencies]
+field_derive = { path = "crates/field_derive" }
+grass_app = { path = "../grass/crates/grass_app" }
+grass_scheduler = { path = "../grass/crates/grass_scheduler" }
+grass_derive = { path = "../grass/crates/grass_derive" }
+grass_mpi = { path = "../grass/crates/grass_mpi" }
+serde = { version = "1", features = ["derive"] }

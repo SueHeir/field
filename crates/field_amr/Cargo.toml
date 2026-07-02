@@ -1,0 +1,10 @@
+[package]
+name = "field_amr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "FIELD AMR substrate: a block-adaptive ForestMesh implementing FvMesh + AdaptiveMesh."
+
+[dependencies]
+field_core = { path = "../field_core" }

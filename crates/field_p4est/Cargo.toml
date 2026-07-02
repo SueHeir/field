@@ -1,0 +1,14 @@
+[package]
+name = "field_p4est"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "p4est-backed ForestMesh for the FIELD substrate (FFI to the p4est C library via a C shim)."
+publish = false
+
+[dependencies]
+field_core = { path = "../field_core" }
+
+[build-dependencies]
+cc = "1"

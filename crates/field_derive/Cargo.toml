@@ -1,0 +1,15 @@
+[package]
+name = "field_derive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Derive macro for the FIELD substrate's FieldData trait."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

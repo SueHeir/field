@@ -1,0 +1,19 @@
+[package]
+name = "field_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "FIELD substrate core: physics-agnostic mesh traits, per-cell field registry, and halo exchange."
+
+[dependencies]
+field_derive.workspace = true
+serde.workspace = true
+grass_app.workspace = true
+grass_scheduler.workspace = true
+grass_derive.workspace = true
+grass_mpi.workspace = true
+
+[features]
+# Forwarded to grass_mpi so a parallel build of FIELD pulls in the real backend.
+mpi_backend = ["grass_mpi/mpi_backend"]
