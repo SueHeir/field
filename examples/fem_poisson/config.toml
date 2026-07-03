@@ -1,0 +1,18 @@
+# fem_poisson — steady-state Poisson (-∇²u = f, u = 0 on ∂Ω) by P1 FEM on the
+# FIELD mesh. Declarative input only: the [grid] section maps directly onto
+# field_core::UniformMeshConfig. The 2-D solver requires nz = 1 and the unit
+# square domain (the manufactured Dirichlet data u = 0 is exact only there).
+#
+# Run:
+#   cargo run --release -p fem_poisson -- examples/fem_poisson/config.toml
+#
+# The sweep.py driver generates configs like this one across a resolution ladder
+# and PASS/FAIL-gates the observed L2 convergence order (~2 for P1).
+
+[grid]
+nx = 32
+ny = 32
+nz = 1
+ng = 1
+bounds_lo = [0.0, 0.0, 0.0]
+bounds_hi = [1.0, 1.0, 1.0]

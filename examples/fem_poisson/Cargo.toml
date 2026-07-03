@@ -1,0 +1,26 @@
+[package]
+name = "fem_poisson"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "FEM steady-state Poisson on the FIELD mesh — the implicit global-solve proof for GRASS."
+publish = false
+
+[[bin]]
+name = "fem_poisson"
+path = "main.rs"
+
+[dependencies]
+field_core = { path = "../../crates/field_core" }
+grass_app.workspace = true
+grass_scheduler.workspace = true
+grass_derive.workspace = true
+grass_io.workspace = true
+serde.workspace = true
+
+# The implicit-global operation: a real sparse direct solver (assemble -> CSC ->
+# sparse Cholesky -> back-substitute). This is what makes the K u = b step a
+# single global linear solve rather than a time-marched relaxation.
+nalgebra = "0.33"
+nalgebra-sparse = "0.10"
