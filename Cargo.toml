@@ -8,6 +8,7 @@ members = [
     "crates/field_transfer",
     "examples/fem_poisson",
     "examples/matrixfree_laplacian",
+    "examples/mpm_elastic_bar",
 ]
 
 [workspace.package]

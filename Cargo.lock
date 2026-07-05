@@ -408,6 +408,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mpm_elastic_bar"
+version = "0.1.0"
+dependencies = [
+ "field_core",
+ "field_transfer",
+ "grass_io",
+ "serde",
+]
+
+[[package]]
 name = "nalgebra"
 version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
