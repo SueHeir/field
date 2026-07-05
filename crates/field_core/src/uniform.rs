@@ -15,7 +15,7 @@
 //! `idx(0,0,0) = (ng, ng, ng)` raw.
 
 use crate::halo::{HaloLink, HaloPlan};
-use crate::mesh::{BoundarySide, Face, FvMesh, StructuredMesh, Vec3};
+use crate::mesh::{BoundarySide, CartesianMesh, Face, FvMesh, StructuredMesh, Vec3};
 
 /// Configuration for building a [`UniformMesh`] (the substrate-level grid knobs;
 /// a physics crate wraps this in its own TOML section). Deserializable so a
@@ -77,6 +77,12 @@ pub struct UniformMesh {
     neighbor: [[i32; 2]; 3],
     /// Precomputed static halo pattern.
     halo: HaloPlan,
+    /// Precomputed per-cell axis neighbours (flat, `6·n_cells_total`), indexed
+    /// `6·c + (axis·2 + hi)` — the [`CartesianMesh`] stencil for MUSCL/gradients.
+    /// Each local cell's six entries are the raw flat indices of the adjacent
+    /// cells (interior cell or BC-filled boundary ghost). Non-local cells are
+    /// never queried (the trait method returns an empty slice for them).
+    axis_nbr: Vec<usize>,
 }
 
 impl UniformMesh {
@@ -193,8 +199,10 @@ impl UniformMesh {
             nk_total: local_n[2] + 2 * ng,
             neighbor,
             halo: HaloPlan::empty(),
+            axis_nbr: Vec::new(),
         };
         mesh.halo = mesh.build_halo_plan();
+        mesh.axis_nbr = mesh.build_axis_nbr();
         mesh
     }
 
@@ -268,6 +276,63 @@ impl UniformMesh {
         }
 
         HaloPlan { links }
+    }
+
+    /// Precompute the six axis neighbours of every cell as raw flat indices, in
+    /// the [`CartesianMesh::axis_neighbors`] direction order (`axis·2 + hi`). Only
+    /// the entries of *local* cells are ever read; on a uniform grid every local
+    /// cell has one neighbour on each side (an interior cell, or a boundary ghost
+    /// the BC fills), so the table is exact and never empty for a local cell.
+    /// Ghost-cell rows are filled with the cell's own index as a harmless
+    /// placeholder — `axis_neighbors` returns an empty slice for non-local cells,
+    /// so those rows are never sliced.
+    fn build_axis_nbr(&self) -> Vec<usize> {
+        let total = self.ni_total * self.nj_total * self.nk_total;
+        // Flat strides: x is outermost, z innermost (see `raw_idx`).
+        let stride = [self.nj_total * self.nk_total, self.nk_total, 1usize];
+        let extent = [self.ni_total, self.nj_total, self.nk_total];
+        let mut nbr = vec![0usize; total * 6];
+        for c in 0..total {
+            let ijk = {
+                let (ir, jr, kr) = self.raw_ijk(c);
+                [ir, jr, kr]
+            };
+            for axis in 0..3 {
+                for hi in [false, true] {
+                    let dir = axis * 2 + hi as usize;
+                    let idx = self.raw_ijk_step(c, ijk, axis, hi, stride[axis], extent[axis]);
+                    nbr[c * 6 + dir] = idx;
+                }
+            }
+        }
+        nbr
+    }
+
+    /// Raw flat index of the neighbour of `c` (per-axis indices `ijk`) one cell
+    /// along `axis` toward the high side if `hi`. Returns `c` itself when the step
+    /// would leave the padded grid — only happens on the outermost ghost ring,
+    /// which is never queried.
+    #[inline]
+    fn raw_ijk_step(
+        &self,
+        c: usize,
+        ijk: [usize; 3],
+        axis: usize,
+        hi: bool,
+        stride: usize,
+        extent: usize,
+    ) -> usize {
+        if hi {
+            if ijk[axis] + 1 < extent {
+                c + stride
+            } else {
+                c
+            }
+        } else if ijk[axis] >= 1 {
+            c - stride
+        } else {
+            c
+        }
     }
 
     /// x cell-center coordinate for a raw i index (handles ghosts via signed offset).
@@ -484,6 +549,19 @@ impl StructuredMesh for UniformMesh {
     }
 }
 
+impl CartesianMesh for UniformMesh {
+    fn axis_neighbors(&self, c: usize, axis: usize, hi: bool) -> &[usize] {
+        // Only local cells carry a reconstruction stencil (mirrors ForestMesh);
+        // a boundary-adjacent local cell's outward neighbour is the BC-filled
+        // ghost, exactly what the MUSCL slope pass wants.
+        if !self.is_local_cell(c) {
+            return &[];
+        }
+        let dir = axis * 2 + hi as usize;
+        &self.axis_nbr[c * 6 + dir..c * 6 + dir + 1]
+    }
+}
+
 /// Bracket `p` against a raw cell-center array: find `lo` with
 /// `arr[lo] <= p < arr[lo+1]` and the fraction within. `None` if outside.
 fn bracket_centers(p: f64, arr: &[f64]) -> Option<(usize, f64)> {
@@ -611,6 +689,35 @@ mod tests {
         assert!(!m.is_local_cell(m.idx_raw(0, 0, 0))); // a corner ghost
         let local = (0..m.n_cells_total()).filter(|&c| m.is_local_cell(c)).count();
         assert_eq!(local, m.n_local_cells());
+    }
+
+    #[test]
+    fn axis_neighbors_step_one_cell_each_direction() {
+        let m = UniformMesh::from_config(&cfg()); // 10³, ng=2
+        // Interior cell (3,4,5): each axis neighbour is exactly the adjacent
+        // interior cell, matching the structured index step.
+        let c = m.idx(3, 4, 5);
+        assert_eq!(m.axis_neighbors(c, 0, true), &[m.idx(4, 4, 5)]);
+        assert_eq!(m.axis_neighbors(c, 0, false), &[m.idx(2, 4, 5)]);
+        assert_eq!(m.axis_neighbors(c, 1, true), &[m.idx(3, 5, 5)]);
+        assert_eq!(m.axis_neighbors(c, 1, false), &[m.idx(3, 3, 5)]);
+        assert_eq!(m.axis_neighbors(c, 2, true), &[m.idx(3, 4, 6)]);
+        assert_eq!(m.axis_neighbors(c, 2, false), &[m.idx(3, 4, 4)]);
+    }
+
+    #[test]
+    fn axis_neighbors_boundary_cell_returns_ghost_and_ghosts_return_empty() {
+        let m = UniformMesh::from_config(&cfg()); // ng = 2
+        // The low-x boundary interior cell's outward (-x) neighbour is the raw
+        // ghost just outside the domain (index one step below in raw x), which a
+        // BC fills — a single valid index, never empty.
+        let edge = m.idx(0, 4, 5);
+        let lo = m.axis_neighbors(edge, 0, false);
+        assert_eq!(lo.len(), 1);
+        assert!(!m.is_local_cell(lo[0]), "outward neighbour of a boundary cell is a ghost");
+        assert_eq!(lo[0], m.idx_raw(1, 4 + 2, 5 + 2));
+        // Non-local (ghost) cells carry no reconstruction stencil.
+        assert!(m.axis_neighbors(m.idx_raw(0, 0, 0), 0, true).is_empty());
     }
 
     #[test]
