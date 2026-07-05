@@ -1,0 +1,15 @@
+[package]
+name = "matrixfree_laplacian"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Worked matrix-free LinearOperator example on FIELD's mesh/vector seam."
+publish = false
+
+[[bin]]
+name = "matrixfree_laplacian"
+path = "main.rs"
+
+[dependencies]
+field_core = { path = "../../crates/field_core" }

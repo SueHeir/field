@@ -8,13 +8,10 @@
 //! Laplacian, Poisson, boundary conditions, or any equation. A concrete operator is
 //! a *consumer* of the substrate, so it lives with the consumer.
 //!
-//! Two acceptance checks:
-//!   1. `laplacian_apply_matches_hand_computed_case` — a matrix-free operator's
-//!      `apply` reproduces a small case worked out by hand.
-//!   2. `conjugate_gradient_solves_poisson_on_the_seam` — a textbook CG, written
-//!      purely against `Vector` + `LinearOperator`, solves `-∇²u = f` and recovers a
-//!      manufactured solution. This is the "a global/implicit solver can be built on
-//!      top" claim, demonstrated.
+//! Acceptance check: `laplacian_apply_matches_hand_computed_case` verifies that a
+//! matrix-free operator's `apply` reproduces a small case worked out by hand. No
+//! solver is bundled here; FIELD exposes the operator/vector seam, and solver
+//! tiers decide what iteration, preconditioner, or direct method to place on top.
 
 use field_core::prelude::*;
 use field_core::{CellVector, LinearOperator, Vector};
@@ -125,82 +122,4 @@ fn laplacian_apply_matches_hand_computed_case() {
             "Laplacian apply {got:?} != hand-computed {want:?}"
         );
     }
-}
-
-/// Textbook conjugate gradient, written *only* through the [`Vector`] +
-/// [`LinearOperator`] seam — no mesh, no stencil, no physics. This is the code a
-/// solver tier would own; that it compiles and converges against `CellVector`/
-/// `NegativeLaplacian` is the demonstration that FIELD exposes enough structure to
-/// build a global implicit solver on top.
-fn conjugate_gradient<A: LinearOperator<Vector = CellVector>>(
-    a: &A,
-    b: &CellVector,
-    x: &mut CellVector,
-    max_iters: usize,
-    tol: f64,
-) -> (usize, f64) {
-    let mut ax = CellVector::zeros_like(x);
-    a.apply(x, &mut ax);
-    let mut r = CellVector::zeros_like(x);
-    r.copy_from(b);
-    r.axpy(-1.0, &ax); // r = b − A x
-    let mut p = CellVector::zeros_like(x);
-    p.copy_from(&r);
-    let mut rs = r.dot(&r);
-
-    for it in 0..max_iters {
-        if rs.sqrt() <= tol {
-            return (it, rs.sqrt());
-        }
-        a.apply(&p, &mut ax);
-        let alpha = rs / p.dot(&ax);
-        x.axpy(alpha, &p); // x += α p
-        r.axpy(-alpha, &ax); // r −= α A p
-        let rs_new = r.dot(&r);
-        let beta = rs_new / rs;
-        p.scale(beta); // p = r + β p
-        p.axpy(1.0, &r);
-        rs = rs_new;
-    }
-    (max_iters, rs.sqrt())
-}
-
-#[test]
-fn conjugate_gradient_solves_poisson_on_the_seam() {
-    // Solve A u = b with A = −∇² and homogeneous Dirichlet (u = 0 at the ghost
-    // cells, which CellVector zeros on construction and CG never writes) on a 1-D
-    // interior of N cells. Manufacture a smooth exact solution, form b = A u_exact,
-    // run CG from zero, and require it to recover u_exact.
-    use std::f64::consts::PI;
-    let n = 15usize;
-    let m = unit_spacing_mesh(n, 1, 1, 1);
-    let a = NegativeLaplacian { mesh: &m };
-
-    // Manufactured u_exact_i = sin(π (i+1)/(N+1)): smooth, zero at the boundaries so
-    // the homogeneous-Dirichlet ghosts are exact.
-    let mut u_exact = CellVector::from_mesh(&m);
-    for i in 0..n {
-        u_exact.set(
-            m.idx(i, 0, 0),
-            (PI * (i as f64 + 1.0) / (n as f64 + 1.0)).sin(),
-        );
-    }
-
-    let mut b = CellVector::zeros_like(&u_exact);
-    a.apply(&u_exact, &mut b); // b = A u_exact
-
-    let mut x = CellVector::zeros_like(&u_exact);
-    let (iters, resid) = conjugate_gradient(&a, &b, &mut x, 100, 1e-12);
-
-    // Error against the manufactured solution.
-    let mut err = CellVector::zeros_like(&x);
-    err.copy_from(&x);
-    err.axpy(-1.0, &u_exact);
-    let e = err.norm();
-
-    // CG on an SPD N-system converges in ≤ N iterations exactly (in exact
-    // arithmetic); require both a tiny residual and a tiny solution error.
-    assert!(iters <= n, "CG took {iters} iterations for N={n}");
-    assert!(resid < 1e-9, "CG residual {resid:e} too large");
-    assert!(e < 1e-9, "‖u_cg − u_exact‖ = {e:e} too large");
 }
