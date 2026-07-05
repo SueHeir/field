@@ -56,7 +56,7 @@ pub mod schedule;
 pub mod uniform;
 
 pub use component::Component;
-pub use field_data::{FieldData, FieldRegistry};
+pub use field_data::{FieldData, FieldRegistry, FieldRegistryError};
 /// `#[derive(FieldData)]` — generates the trait impl from `#[forward]` /
 /// `#[reverse]` / `#[zero]`-tagged `Vec<C: Component>` columns. (Same name as the
 /// [`FieldData`] trait, different namespace — like `serde::Serialize`.)
@@ -79,8 +79,9 @@ pub use uniform::{UniformMesh, UniformMeshConfig};
 /// Commonly used FIELD imports.
 pub mod prelude {
     pub use crate::{
-        register_field_data, BoundarySide, CommPlugin, Component, Face, FieldData,
-        FieldDefaultPlugins, FieldRegistry, FieldRegistryPlugin, FvMesh, MeshScheduleSet,
-        StructuredMesh, UniformMesh, UniformMeshConfig, UniformMeshPlugin, Vec3,
+        register_field_data, try_register_field_data, BoundarySide, CommPlugin, Component, Face,
+        FieldData, FieldDefaultPlugins, FieldRegistry, FieldRegistryError, FieldRegistryPlugin,
+        FvMesh, MeshScheduleSet, StructuredMesh, UniformMesh, UniformMeshConfig, UniformMeshPlugin,
+        Vec3,
     };
 }
