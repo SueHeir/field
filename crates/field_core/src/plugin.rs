@@ -102,7 +102,8 @@ fn decompose_mesh(
         return;
     }
     let rank = comm.rank();
-    let decomp = factor_decomposition(size, [cfg.nx, cfg.ny, cfg.nz]);
+    let decomp = factor_decomposition(size, [cfg.nx, cfg.ny, cfg.nz])
+        .unwrap_or_else(|e| panic!("UniformMesh decomposition failed: {e}"));
     let pos = rank_position(rank, decomp);
     comm.set_processor_grid(decomp, pos);
     *mesh = UniformMesh::from_config_decomposed(&cfg, decomp, pos);
