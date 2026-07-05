@@ -1,0 +1,16 @@
+[package]
+name = "field_transfer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Particle <-> mesh transfer operators (conservative scatter / consistent gather) — the solver-agnostic hybrid primitive shared by PIC, MPM, CFD-DEM and IBM."
+keywords = ["pic", "mpm", "cfd-dem", "ibm", "interpolation"]
+categories = ["simulation", "science"]
+
+[dependencies]
+# The mesh side of the transfer: FIELD's structured-mesh geometry (cell volumes
+# + point location). The *particle* side is deliberately just position/value
+# slices, so this crate has no dependency on SOIL (or any particle method) — that
+# is what makes it solver-agnostic.
+field_core = { path = "../field_core" }

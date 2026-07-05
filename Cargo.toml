@@ -5,6 +5,7 @@ members = [
     "crates/field_derive",
     "crates/field_amr",
     "crates/field_p4est",
+    "crates/field_transfer",
     "examples/fem_poisson",
 ]
 

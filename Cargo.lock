@@ -188,6 +188,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "field_transfer"
+version = "0.1.0"
+dependencies = [
+ "field_core",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
