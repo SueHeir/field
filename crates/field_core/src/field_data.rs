@@ -29,7 +29,9 @@ use std::fmt;
 /// A per-cell field (one component, or several packed into a struct), stored as
 /// columns keyed by flat cell index — the same indexing the mesh uses.
 pub trait FieldData: Any + Send + Sync {
+    /// Upcasts to `&dyn Any` so a caller can downcast to the concrete store type.
     fn as_any(&self) -> &dyn Any;
+    /// Mutable counterpart of [`as_any`](Self::as_any).
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
     /// Number of cells currently stored.
@@ -39,6 +41,7 @@ pub trait FieldData: Any + Send + Sync {
     /// the mesh is known so all stores align with [`crate::FvMesh::n_cells_total`].
     fn resize(&mut self, n: usize);
 
+    /// `true` when no cells are stored.
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -138,6 +141,7 @@ impl Default for FieldRegistry {
 }
 
 impl FieldRegistry {
+    /// Creates an empty registry with no field stores.
     pub fn new() -> Self {
         Self {
             stores: Vec::new(),
@@ -293,6 +297,7 @@ impl FieldRegistry {
         off
     }
 
+    /// `true` when no field stores are registered.
     pub fn is_empty(&self) -> bool {
         self.stores.is_empty()
     }

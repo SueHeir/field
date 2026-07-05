@@ -45,6 +45,8 @@
 //! The "method-agnostic" rows are the substrate a future non-FV topology (FEM/DG)
 //! would reuse unchanged; only [`mesh`] and [`uniform`] assume finite volume.
 
+#![warn(missing_docs)]
+
 pub mod component;
 pub mod field_data;
 pub mod halo;

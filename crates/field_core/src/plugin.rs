@@ -59,10 +59,12 @@ impl Plugin for FieldRegistryPlugin {
 /// comm backend's rank count is known — so the same plugin works serial or under
 /// MPI with no change at the call site.
 pub struct UniformMeshPlugin {
+    /// Grid configuration used to build the mesh.
     pub config: UniformMeshConfig,
 }
 
 impl UniformMeshPlugin {
+    /// Creates the plugin from a mesh configuration.
     pub fn new(config: UniformMeshConfig) -> Self {
         Self { config }
     }
@@ -119,6 +121,7 @@ pub fn resize_fields<M: FvMesh>(mesh: Res<M>, reg: Res<FieldRegistry>) {
 /// The standard FIELD substrate bundle: comm backend, field registry, and a
 /// structured mesh built from `mesh`. Mirror of DIRT's `CorePlugins`.
 pub struct FieldDefaultPlugins {
+    /// Grid configuration for the structured mesh in the bundle.
     pub mesh: UniformMeshConfig,
 }
 

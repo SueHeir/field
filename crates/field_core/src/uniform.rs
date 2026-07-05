@@ -24,14 +24,21 @@ use std::fmt;
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct UniformMeshConfig {
+    /// Interior cell count along x.
     pub nx: usize,
+    /// Interior cell count along y.
     pub ny: usize,
+    /// Interior cell count along z.
     pub nz: usize,
+    /// Number of ghost-cell layers on each side.
     pub ng: usize,
+    /// Lower corner of the domain bounding box.
     pub bounds_lo: Vec3,
+    /// Upper corner of the domain bounding box.
     pub bounds_hi: Vec3,
     /// Optional explicit cell edges (length `ny+1` / `nz+1`) for stretching.
     pub y_edges: Option<Vec<f64>>,
+    /// Optional explicit z cell edges (length `nz+1`) for stretching.
     pub z_edges: Option<Vec<f64>>,
 }
 

@@ -41,6 +41,7 @@
 //! `scatter` and `gather` are also a matched **adjoint pair** (same weights both
 //! ways): `⟨scatter(q), f⟩_cells == ⟨q, gather(f)⟩_particles`. Using the same
 //! kernel in both directions is what keeps hybrid schemes stable.
+#![warn(missing_docs)]
 
 use field_core::{FvMesh, StructuredMesh};
 
