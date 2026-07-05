@@ -1,5 +1,20 @@
 # FIELD
 
+<!-- disclaimer-banner -->
+> ### ⚠️ Proof-of-concept — AI-authored. Read this first.
+>
+> This code was fully written via **Claude 4.6, 4.8 and Fable 5**, and stands as a
+> proof of concept for a bevy-like ecosystem for physics simulation research, with the
+> goal of testing if one scheduler/framework (**GRASS**) works for most scientific codes.
+> **SOIL** and **FIELD** are particle- and mesh-based substrates for physics such as
+> **DIRT** (DEM) or **dev_field_efvm**. Note that all other physics-based repos start with
+> `dev_`, as I do **NOT** know these methods. Please read, evaluate, and use with a grain
+> of salt — I have not personally read or reviewed everything here.
+> 
+> _Full note: [DISCLAIMER.md](DISCLAIMER.md)._
+<!-- /disclaimer-banner -->
+
+
 **F**ramework for **I**ndexed **E**ulerian **L**attice **D**iscretization — the
 mesh/Eulerian substrate, sibling to [SOIL](https://github.com/SueHeir/soil) (the
 particle/Lagrangian substrate), both riding the
