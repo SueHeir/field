@@ -1,0 +1,12 @@
+[grid]
+nx = 64
+ny = 32
+nz = 1
+ng = 1
+bounds_lo = [0.0, 0.0, 0.0]
+bounds_hi = [64.0, 32.0, 1.0]
+
+[lbm]
+steps = 16000
+tau = 0.8
+force_x = 1.0e-6

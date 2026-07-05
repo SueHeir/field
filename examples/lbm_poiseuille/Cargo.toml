@@ -1,0 +1,19 @@
+[package]
+name = "lbm_poiseuille"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "D2Q9 lattice-Boltzmann Poiseuille demonstrator on FIELD."
+publish = false
+
+[[bin]]
+name = "lbm_poiseuille"
+path = "main.rs"
+
+[dependencies]
+field_core = { path = "../../crates/field_core" }
+grass_app.workspace = true
+grass_scheduler.workspace = true
+grass_io.workspace = true
+serde.workspace = true
