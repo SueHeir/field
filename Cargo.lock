@@ -331,6 +331,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "matrixfree_laplacian"
+version = "0.1.0"
+dependencies = [
+ "field_core",
+]
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
