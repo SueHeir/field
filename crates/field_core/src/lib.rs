@@ -48,7 +48,9 @@
 pub mod component;
 pub mod field_data;
 pub mod halo;
+pub mod hierarchy;
 pub mod mesh;
+pub mod operator;
 pub mod plugin;
 pub mod schedule;
 pub mod uniform;
@@ -62,10 +64,12 @@ pub use field_derive::FieldData;
 pub use halo::{
     halo_exchange_forward, halo_exchange_forward_all, halo_exchange_reverse_all, HaloLink, HaloPlan,
 };
+pub use hierarchy::MeshHierarchy;
 pub use mesh::{
     AdaptiveMesh, BoundarySide, CartesianMesh, CoarseFineFace, Face, FvMesh, PatchId,
     StructuredMesh, Vec3,
 };
+pub use operator::{CellVector, LinearOperator, Vector};
 pub use plugin::{
     resize_fields, CommPlugin, FieldDefaultPlugins, FieldRegistryPlugin, UniformMeshPlugin,
 };
