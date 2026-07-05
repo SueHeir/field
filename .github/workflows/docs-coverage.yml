@@ -54,4 +54,4 @@ jobs:
         working-directory: field
         env:
           RUSTFLAGS: -D warnings
-        run: cargo build -p field_core -p field_amr -p field_derive --lib
+        run: cargo build -p field_core -p field_amr -p field_derive -p field_transfer --lib
