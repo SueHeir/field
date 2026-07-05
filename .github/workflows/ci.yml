@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: build + test + validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout field
+        uses: actions/checkout@v4
+        with:
+          path: field
+
+      - name: Checkout grass sibling
+        uses: actions/checkout@v4
+        with:
+          repository: SueHeir/grass
+          path: grass
+
+      - name: Install OpenMPI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenmpi-dev openmpi-bin
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: field -> target
+
+      - name: Build workspace
+        working-directory: field
+        run: cargo build -p field_core -p field_derive -p field_amr -p field_transfer -p fem_poisson --all-targets
+
+      - name: Test workspace
+        working-directory: field
+        run: cargo test -p field_core -p field_derive -p field_amr -p field_transfer -p fem_poisson
+
+      - name: Run validation example
+        working-directory: field
+        run: python3 examples/fem_poisson/sweep.py
