@@ -7,6 +7,7 @@ members = [
     "crates/field_p4est",
     "crates/field_transfer",
     "examples/fem_poisson",
+    "examples/lbm_poiseuille",
     "examples/matrixfree_laplacian",
 ]
 
