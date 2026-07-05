@@ -12,8 +12,8 @@ particle/Lagrangian substrate), both riding the
 
 ```
 GRASS    framework: App + Plugin + Scheduler, IO, MPI coupling   (no particles/mesh/physics)
-  ├─ SOIL    particle substrate: Atom, domain decomp, neighbors ── DIRT      (DEM physics)
-  └─ FIELD   mesh substrate:     Mesh, FieldData, halo exchange ── test-cfd  (CFD physics)
+  ├─ SOIL    particle substrate: Atom, domain decomp, neighbors ── DIRT           (DEM physics)
+  └─ FIELD   mesh substrate:     Mesh, FieldData, halo exchange ── dev_field_efvm (CFD physics)
 ```
 
 FIELD owns meshes, per-cell field storage, and halo communication. It knows
@@ -83,4 +83,4 @@ serial + MPI). Remaining FIELD work belongs to later milestones:
 
 - `field_amr` — `ForestMesh` on p4est: `AdaptiveMesh`, refluxing, transfer (M2).
 - `field_print` — VTK / dump / restart for the generic field registry.
-- `test-cfd` — port the compressible physics onto `FvMesh` (`ConsVar: Component`).
+- `dev_field_efvm` — port the compressible physics onto `FvMesh` (`ConsVar: Component`).
