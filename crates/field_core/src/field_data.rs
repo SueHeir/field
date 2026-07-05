@@ -24,6 +24,7 @@
 
 use std::any::{Any, TypeId};
 use std::cell::{Ref, RefCell, RefMut};
+use std::fmt;
 
 /// A per-cell field (one component, or several packed into a struct), stored as
 /// columns keyed by flat cell index — the same indexing the mesh uses.
@@ -90,6 +91,35 @@ pub trait FieldData: Any + Send + Sync {
     }
 }
 
+/// Error returned by the fallible [`FieldRegistry`] / `try_register_field_data!`
+/// entry points. Registration is the one place mesh setup can be *misused* by a
+/// caller (registering a type twice, or before the registry resource exists), so
+/// it gets a typed error instead of aborting the process. The variants carry no
+/// physics — they are substrate-generic, so the tier-agnostic contract holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldRegistryError {
+    /// A field of this [`TypeId`] is already registered (each field type is unique).
+    AlreadyRegistered(TypeId),
+    /// The [`FieldRegistry`] resource is absent — its plugin was not added to the
+    /// app before registration was attempted.
+    RegistryMissing,
+}
+
+impl fmt::Display for FieldRegistryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FieldRegistryError::AlreadyRegistered(id) => {
+                write!(f, "FieldRegistry: field type {id:?} already registered")
+            }
+            FieldRegistryError::RegistryMissing => {
+                write!(f, "FieldRegistry not found — FieldRegistryPlugin must be added first")
+            }
+        }
+    }
+}
+
+impl std::error::Error for FieldRegistryError {}
+
 /// Type-keyed registry of [`FieldData`] stores — one entry per concrete type.
 ///
 /// Lives as a single `grass_app` resource. Mirrors SOIL's `AtomDataRegistry`,
@@ -116,15 +146,32 @@ impl FieldRegistry {
         }
     }
 
-    /// Register a new typed field. Panics if its type is already registered
-    /// (each field type is unique, like SOIL's registry).
-    pub fn register<F: FieldData + 'static>(&mut self, field: F) {
+    /// Register a new typed field, returning
+    /// [`FieldRegistryError::AlreadyRegistered`] if its type is already present
+    /// (each field type is unique, like SOIL's registry). This is the fallible
+    /// path; [`register`](Self::register) is the panicking convenience over it.
+    pub fn try_register<F: FieldData + 'static>(
+        &mut self,
+        field: F,
+    ) -> Result<(), FieldRegistryError> {
         let id = TypeId::of::<F>();
         if self.stores.iter().any(|(t, _)| *t == id) {
-            panic!("FieldRegistry: field type {:?} already registered", id);
+            return Err(FieldRegistryError::AlreadyRegistered(id));
         }
         self.stores.push((id, RefCell::new(Box::new(field))));
         self.rebuild_comm_caches();
+        Ok(())
+    }
+
+    /// Register a new typed field. Convenience wrapper over
+    /// [`try_register`](Self::try_register).
+    ///
+    /// # Panics
+    /// Panics if the type is already registered. Prefer
+    /// [`try_register`](Self::try_register) when duplicate registration is a
+    /// recoverable condition rather than a programming error.
+    pub fn register<F: FieldData + 'static>(&mut self, field: F) {
+        self.try_register(field).unwrap_or_else(|e| panic!("{e}"));
     }
 
     fn rebuild_comm_caches(&mut self) {
@@ -145,7 +192,11 @@ impl FieldRegistry {
     pub fn get<F: FieldData + 'static>(&self) -> Option<Ref<'_, F>> {
         let cell = self.cell_of::<F>()?;
         Some(Ref::map(cell.borrow(), |b| {
-            b.as_any().downcast_ref::<F>().expect("FieldRegistry type mismatch")
+            // Provably internal: `cell_of::<F>` selected this entry by
+            // `TypeId::of::<F>()`, so the boxed value IS an `F` and the downcast
+            // cannot fail. A failure would be a FIELD bug, not user input — so it
+            // stays an `expect`, not a typed error.
+            b.as_any().downcast_ref::<F>().expect("FieldRegistry downcast — this is a bug in FIELD")
         }))
     }
 
@@ -153,16 +204,26 @@ impl FieldRegistry {
     pub fn get_mut<F: FieldData + 'static>(&self) -> Option<RefMut<'_, F>> {
         let cell = self.cell_of::<F>()?;
         Some(RefMut::map(cell.borrow_mut(), |b| {
-            b.as_any_mut().downcast_mut::<F>().expect("FieldRegistry type mismatch")
+            // Provably internal: same invariant as `get` — `cell_of::<F>` matched
+            // this entry by `TypeId::of::<F>()`, so the downcast cannot fail.
+            b.as_any_mut().downcast_mut::<F>().expect("FieldRegistry downcast — this is a bug in FIELD")
         }))
     }
 
     /// Borrow a field, panicking with `context` if it is not registered.
+    ///
+    /// This is a deliberate assertion accessor (mirrors [`Option::expect`]): the
+    /// caller states the field *must* be present and a missing one is a
+    /// programming error. For the fallible lookup that returns `None` instead of
+    /// panicking, use [`get`](Self::get).
     pub fn expect<F: FieldData + 'static>(&self, context: &str) -> Ref<'_, F> {
         self.get::<F>().unwrap_or_else(|| panic!("{context}"))
     }
 
     /// Mutably borrow a field, panicking with `context` if it is not registered.
+    ///
+    /// Deliberate assertion accessor — see [`expect`](Self::expect). For the
+    /// fallible path use [`get_mut`](Self::get_mut).
     pub fn expect_mut<F: FieldData + 'static>(&self, context: &str) -> RefMut<'_, F> {
         self.get_mut::<F>().unwrap_or_else(|| panic!("{context}"))
     }
@@ -244,26 +305,52 @@ impl FieldRegistry {
 // resource map (which is `Send + Sync`).
 unsafe impl Sync for FieldRegistry {}
 
+/// Fallibly register a [`FieldData`] store into an [`App`](grass_app::App)'s
+/// [`FieldRegistry`]. Returns [`FieldRegistryError::RegistryMissing`] if the
+/// registry resource is absent (its plugin was not added) or
+/// [`FieldRegistryError::AlreadyRegistered`] if the field type is already
+/// registered. This is the fallible path; [`register_field_data!`] is the
+/// panicking convenience over it.
+///
+/// ```rust,ignore
+/// try_register_field_data!(app, ConsState::default())?;
+/// ```
+#[macro_export]
+macro_rules! try_register_field_data {
+    ($app:expr, $value:expr) => {
+        match $app.get_mut_resource(::std::any::TypeId::of::<$crate::FieldRegistry>()) {
+            ::std::option::Option::Some(cell) => {
+                let mut binder = cell.borrow_mut();
+                binder
+                    .downcast_mut::<$crate::FieldRegistry>()
+                    // Provably internal: the resource stored under this TypeId is a
+                    // FieldRegistry by construction, so the downcast cannot fail.
+                    .expect("Failed to downcast FieldRegistry — this is a bug in FIELD")
+                    .try_register($value)
+            }
+            ::std::option::Option::None => {
+                ::std::result::Result::Err($crate::FieldRegistryError::RegistryMissing)
+            }
+        }
+    };
+}
+
 /// Register a [`FieldData`] store into an [`App`](grass_app::App)'s
-/// [`FieldRegistry`]. Mirror of SOIL's `register_atom_data!`.
+/// [`FieldRegistry`]. Mirror of SOIL's `register_atom_data!`. Panicking
+/// convenience over [`try_register_field_data!`].
 ///
 /// ```rust,ignore
 /// register_field_data!(app, ConsState::default());
 /// ```
+///
+/// # Panics
+/// Panics if the registry resource is absent (its plugin was not added) or the
+/// field type is already registered. Use [`try_register_field_data!`] to handle
+/// those conditions as a typed [`FieldRegistryError`] instead.
 #[macro_export]
 macro_rules! register_field_data {
     ($app:expr, $value:expr) => {
-        if let Some(cell) =
-            $app.get_mut_resource(::std::any::TypeId::of::<$crate::FieldRegistry>())
-        {
-            let mut binder = cell.borrow_mut();
-            binder
-                .downcast_mut::<$crate::FieldRegistry>()
-                .expect("Failed to downcast FieldRegistry — this is a bug in FIELD")
-                .register($value);
-        } else {
-            panic!("FieldRegistry not found — FieldRegistryPlugin must be added first");
-        }
+        $crate::try_register_field_data!($app, $value).unwrap_or_else(|e| ::std::panic!("{e}"))
     };
 }
 
@@ -327,6 +414,28 @@ mod tests {
         let consumed = reg.unpack_forward_all(0, &buf);
         assert_eq!(consumed, 1);
         assert_eq!(reg.get::<Scalar>().unwrap().value[0], 20.0);
+    }
+
+    #[test]
+    fn try_register_rejects_duplicate_without_panicking() {
+        let mut reg = FieldRegistry::new();
+        assert!(reg.try_register(Scalar { value: vec![1.0], accum: vec![0.0] }).is_ok());
+        // A second registration of the same type errors instead of aborting.
+        let err = reg
+            .try_register(Scalar { value: vec![2.0], accum: vec![0.0] })
+            .unwrap_err();
+        assert!(matches!(err, FieldRegistryError::AlreadyRegistered(id) if id == TypeId::of::<Scalar>()));
+        // The original store is untouched by the rejected second call.
+        assert_eq!(reg.get::<Scalar>().unwrap().value, vec![1.0]);
+    }
+
+    #[test]
+    fn error_display_is_descriptive() {
+        let e = FieldRegistryError::AlreadyRegistered(TypeId::of::<Scalar>());
+        assert!(e.to_string().contains("already registered"));
+        assert!(FieldRegistryError::RegistryMissing
+            .to_string()
+            .contains("FieldRegistryPlugin"));
     }
 
     #[test]
