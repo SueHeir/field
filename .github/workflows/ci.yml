@@ -36,13 +36,17 @@ jobs:
         with:
           workspaces: field -> target
 
+      # Gate the whole workspace so newly added members/examples are covered
+      # automatically (no hand-maintained package list to drift). field_p4est is
+      # the sole exclusion: it wraps the p4est C library via a build script that
+      # needs a p4est install (P4EST_PREFIX), provisioning tracked separately.
       - name: Build workspace
         working-directory: field
-        run: cargo build -p field_core -p field_derive -p field_amr -p field_transfer -p fem_poisson --all-targets
+        run: cargo build --workspace --exclude field_p4est --all-targets
 
       - name: Test workspace
         working-directory: field
-        run: cargo test -p field_core -p field_derive -p field_amr -p field_transfer -p fem_poisson
+        run: cargo test --workspace --exclude field_p4est
 
       - name: Run validation example
         working-directory: field
