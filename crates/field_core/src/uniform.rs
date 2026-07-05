@@ -16,6 +16,7 @@
 
 use crate::halo::{HaloLink, HaloPlan};
 use crate::mesh::{BoundarySide, CartesianMesh, Face, FvMesh, StructuredMesh, Vec3};
+use std::fmt;
 
 /// Configuration for building a [`UniformMesh`] (the substrate-level grid knobs;
 /// a physics crate wraps this in its own TOML section). Deserializable so a
@@ -580,18 +581,48 @@ fn bracket_centers(p: f64, arr: &[f64]) -> Option<(usize, f64)> {
     Some((lo, t))
 }
 
+/// Error returned by the fallible mesh decomposition entry points.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DecompositionError {
+    /// MPI reported a non-positive rank count.
+    InvalidRankCount(i32),
+    /// More ranks were requested than can be assigned without zero-cell ranks.
+    TooManyRanks { size: i32, global: [usize; 3] },
+}
+
+impl fmt::Display for DecompositionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DecompositionError::InvalidRankCount(size) => {
+                write!(f, "rank count must be >= 1, got {size}")
+            }
+            DecompositionError::TooManyRanks { size, global } => write!(
+                f,
+                "cannot decompose {size} ranks over grid {global:?}: too many ranks for the cell count"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DecompositionError {}
+
 /// Factor `size` MPI ranks into a balanced 3D process grid `[npx, npy, npz]`,
 /// MPI_Dims_create-style: distribute the prime factors of `size` to whichever axis
 /// currently has the most cells per rank, never splitting an axis finer than its
-/// global cell count. The product of the result always equals `size`.
+/// global cell count. The product of the result always equals `size` on success.
 ///
-/// Panics if `size` cannot be placed without giving some rank zero cells (more
-/// ranks than the grid can be split into).
-pub fn factor_decomposition(size: i32, global: [usize; 3]) -> [i32; 3] {
-    assert!(size >= 1, "rank count must be >= 1");
+/// Returns [`DecompositionError::TooManyRanks`] if `size` cannot be placed
+/// without giving some rank zero cells.
+pub fn factor_decomposition(
+    size: i32,
+    global: [usize; 3],
+) -> Result<[i32; 3], DecompositionError> {
+    if size < 1 {
+        return Err(DecompositionError::InvalidRankCount(size));
+    }
     let mut decomp = [1i32; 3];
     if size == 1 {
-        return decomp;
+        return Ok(decomp);
     }
 
     // Prime factorization of `size`, largest factor first (greedy balances better).
@@ -623,12 +654,10 @@ pub fn factor_decomposition(size: i32, global: [usize; 3]) -> [i32; 3] {
                 }
             }
         }
-        let d = best.unwrap_or_else(|| {
-            panic!("cannot decompose {size} ranks over grid {global:?}: too many ranks for the cell count")
-        });
+        let d = best.ok_or(DecompositionError::TooManyRanks { size, global })?;
         decomp[d] *= fac;
     }
-    decomp
+    Ok(decomp)
 }
 
 /// This rank's `[px, py, pz]` position in the process grid, inverting the rank
@@ -748,18 +777,28 @@ mod tests {
 
     #[test]
     fn decomposition_factors_balance_and_multiply() {
-        assert_eq!(factor_decomposition(1, [10, 10, 10]), [1, 1, 1]);
-        assert_eq!(factor_decomposition(8, [16, 16, 16]), [2, 2, 2]);
+        assert_eq!(factor_decomposition(1, [10, 10, 10]).unwrap(), [1, 1, 1]);
+        assert_eq!(factor_decomposition(8, [16, 16, 16]).unwrap(), [2, 2, 2]);
         // z is a single cell → all splitting goes to x and y.
-        assert_eq!(factor_decomposition(4, [16, 16, 1]), [2, 2, 1]);
-        assert_eq!(factor_decomposition(7, [14, 1, 1]), [7, 1, 1]);
+        assert_eq!(factor_decomposition(4, [16, 16, 1]).unwrap(), [2, 2, 1]);
+        assert_eq!(factor_decomposition(7, [14, 1, 1]).unwrap(), [7, 1, 1]);
         for &(size, g) in &[(6i32, [12usize, 12, 12]), (12, [24, 24, 24]), (5, [10, 5, 5])] {
-            let d = factor_decomposition(size, g);
+            let d = factor_decomposition(size, g).unwrap();
             assert_eq!(d[0] * d[1] * d[2], size, "product must equal rank count");
             for axis in 0..3 {
                 assert!(d[axis] as usize <= g[axis], "never finer than the cell count");
             }
         }
+    }
+
+    #[test]
+    fn decomposition_rejects_over_subscribed_ranks_without_panicking() {
+        let err = factor_decomposition(9, [2, 2, 2]).unwrap_err();
+        assert_eq!(err, DecompositionError::TooManyRanks { size: 9, global: [2, 2, 2] });
+        assert_eq!(
+            err.to_string(),
+            "cannot decompose 9 ranks over grid [2, 2, 2]: too many ranks for the cell count"
+        );
     }
 
     #[test]
