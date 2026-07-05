@@ -1,0 +1,18 @@
+[package]
+name = "mpm_elastic_bar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MPM elastic-bar transfer demonstrator on FIELD's particle-mesh operator."
+publish = false
+
+[[bin]]
+name = "mpm_elastic_bar"
+path = "main.rs"
+
+[dependencies]
+field_core = { path = "../../crates/field_core" }
+field_transfer = { path = "../../crates/field_transfer" }
+grass_io.workspace = true
+serde.workspace = true

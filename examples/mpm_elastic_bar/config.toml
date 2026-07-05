@@ -1,0 +1,34 @@
+# mpm_elastic_bar — MPM-style elastic bar particles coupled to a FIELD mesh by
+# the solver-agnostic field_transfer scatter/gather operator.
+#
+# Declarative input only. The [grid] section maps directly onto
+# field_core::UniformMeshConfig; [particles], [material], and [validation] are
+# example-local knobs.
+#
+# Run:
+#   cargo run --release -p mpm_elastic_bar -- examples/mpm_elastic_bar/config.toml
+
+[grid]
+nx = 64
+ny = 2
+nz = 2
+ng = 2
+bounds_lo = [0.0, 0.0, 0.0]
+bounds_hi = [1.0, 0.1, 0.1]
+
+[particles]
+count = 512
+x_min = 0.15
+x_max = 0.85
+area = 0.01
+density = 1.0
+base_velocity = 0.08
+velocity_amplitude = 0.02
+strain_amplitude = 0.01
+
+[material]
+young_modulus = 1000.0
+
+[validation]
+conservation_tol = 1.0e-12
+affine_tol = 1.0e-12
