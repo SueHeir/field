@@ -54,10 +54,12 @@ pub struct HaloLink {
 /// gets it from matching face traversal on both sides.)
 #[derive(Default)]
 pub struct HaloPlan {
+    /// Per-neighbour exchange links that make up this plan.
     pub links: Vec<HaloLink>,
 }
 
 impl HaloPlan {
+    /// An empty plan with no links (serial run — nothing to exchange).
     pub fn empty() -> Self {
         Self { links: Vec::new() }
     }

@@ -51,11 +51,17 @@ pub type PatchId = u32;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum BoundarySide {
+    /// Lower-x boundary side.
     XLo = 0,
+    /// Upper-x boundary side.
     XHi = 1,
+    /// Lower-y boundary side.
     YLo = 2,
+    /// Upper-y boundary side.
     YHi = 3,
+    /// Lower-z boundary side.
     ZLo = 4,
+    /// Upper-z boundary side.
     ZHi = 5,
 }
 
@@ -228,9 +234,13 @@ pub trait CartesianMesh: FvMesh {
 /// flux must be replaced by the sum of the overlapping fine-face fluxes to stay
 /// conservative — a *reverse accumulate* in [`crate::FieldData`] terms.
 pub struct CoarseFineFace {
+    /// Flat index of the coarse cell owning this face.
     pub coarse: usize,
+    /// Flat index of the fine cell across the refinement boundary.
     pub fine: usize,
+    /// Outward area-weighted face normal (its magnitude is the face area).
     pub area_normal: Vec3,
+    /// Face centroid position.
     pub centroid: Vec3,
 }
 

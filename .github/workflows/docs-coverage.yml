@@ -1,0 +1,57 @@
+name: docs-coverage
+
+# Public-API documentation gate. FIELD library crates opt in with
+# `#![warn(missing_docs)]`; this workflow flips that warning to a hard error
+# (`-D warnings`) so no public item can merge without a doc comment.
+#
+# FIELD path-depends on the GRASS framework as a sibling checkout
+# (`../grass/crates/*`), mirroring local dev, so grass is checked out next to
+# field below. The default build links libmpi via grass_mpi, hence OpenMPI.
+#
+# field_p4est is intentionally excluded: it wraps the p4est C library through
+# a build script that needs a p4est install (`P4EST_PREFIX`). Provisioning that
+# on CI is tracked separately; until then its `#![warn(missing_docs)]` opt-in
+# and gap fix are deferred to a follow-up.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  missing-docs:
+    name: missing_docs gate (deny)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout field
+        uses: actions/checkout@v4
+        with:
+          path: field
+
+      # FIELD's Cargo.toml uses path deps on `../grass/crates/*`.
+      - name: Checkout grass (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: SueHeir/grass
+          path: grass
+
+      - name: Install OpenMPI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenmpi-dev openmpi-bin
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: field
+
+      # p4est-free library crates only; `--lib` gates the public surface.
+      - name: cargo build (field libs, docs = deny)
+        working-directory: field
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo build -p field_core -p field_amr -p field_derive --lib

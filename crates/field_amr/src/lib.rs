@@ -24,6 +24,8 @@
 //! contract carries adaptive meshes and that the unchanged physics conserves
 //! across refinement boundaries.
 
+#![warn(missing_docs)]
+
 // `ForestMesh` is intentionally NOT a `StructuredMesh` (no global i,j,k):
 // structured-only physics (viscous, IBM) stays on `UniformMesh`; the inviscid
 // solver runs here through the generic `FvMesh` path.
@@ -33,10 +35,15 @@ use field_core::{AdaptiveMesh, CoarseFineFace, Face, FvMesh, HaloPlan, Vec3};
 /// cells (0-based interior indices) to refine `2×2×2`.
 #[derive(Clone, Debug)]
 pub struct ForestConfig {
+    /// Coarse base-grid cell count along x.
     pub ncx: usize,
+    /// Coarse base-grid cell count along y.
     pub ncy: usize,
+    /// Coarse base-grid cell count along z.
     pub ncz: usize,
+    /// Lower corner of the domain bounding box.
     pub bounds_lo: Vec3,
+    /// Upper corner of the domain bounding box.
     pub bounds_hi: Vec3,
     /// Interior coarse cells `[i, j, k]` (each in `0..nc`) to refine. Cells on the
     /// boundary cannot be refined (keeps boundary faces coarse-coarse).
@@ -61,6 +68,7 @@ pub struct ForestMesh {
 }
 
 impl ForestMesh {
+    /// Builds a [`ForestMesh`] from a [`ForestConfig`] (coarse base grid plus refinement list).
     pub fn from_config(cfg: &ForestConfig) -> Self {
         let nc = [cfg.ncx, cfg.ncy, cfg.ncz];
         let ng = 1usize; // one coarse ghost layer
