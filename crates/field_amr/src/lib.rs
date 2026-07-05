@@ -48,12 +48,14 @@ struct Leaf {
     level: u8,
     center: Vec3,
     size: Vec3,
+    coarse: [usize; 3],
     is_ghost: bool,
 }
 
 /// A two-level block-adaptive Cartesian mesh.
 pub struct ForestMesh {
     leaves: Vec<Leaf>,
+    base_dims: [usize; 3],
     n_local: usize,
     faces: Vec<Face>,
     coarse_fine: Vec<CoarseFineFace>,
@@ -75,15 +77,17 @@ impl ForestMesh {
         // Refined coarse cells, by raw (ghost-inclusive) coarse index.
         let mut refined = std::collections::HashSet::new();
         for r in &cfg.refine {
-            assert!(r[0] < nc[0] && r[1] < nc[1] && r[2] < nc[2], "refine index out of range");
+            assert!(
+                r[0] < nc[0] && r[1] < nc[1] && r[2] < nc[2],
+                "refine index out of range"
+            );
             refined.insert([r[0] + ng, r[1] + ng, r[2] + ng]);
         }
 
         // Lower corner of a raw coarse cell along an axis.
-        let coarse_lo = |ci: usize, axis: usize| cfg.bounds_lo[axis] + (ci as f64 - ng as f64) * dc[axis];
-        let is_ghost_coarse = |c: [usize; 3]| {
-            (0..3).any(|a| c[a] < ng || c[a] >= ng + nc[a])
-        };
+        let coarse_lo =
+            |ci: usize, axis: usize| cfg.bounds_lo[axis] + (ci as f64 - ng as f64) * dc[axis];
+        let is_ghost_coarse = |c: [usize; 3]| (0..3).any(|a| c[a] < ng || c[a] >= ng + nc[a]);
 
         let mut leaves: Vec<Leaf> = Vec::new();
         // slot_to_leaf[fi*nf1*nf2 + fj*nf2 + fk] = leaf index
@@ -109,19 +113,37 @@ impl ForestMesh {
                                         lo[2] + (sz as f64 + 0.5) * hf[2],
                                     ];
                                     let li = leaves.len();
-                                    leaves.push(Leaf { level: 1, center, size: hf, is_ghost: ghost });
-                                    slot_to_leaf[slot_idx(2 * ci + sx, 2 * cj + sy, 2 * ck + sz)] = li;
+                                    leaves.push(Leaf {
+                                        level: 1,
+                                        center,
+                                        size: hf,
+                                        coarse: cc,
+                                        is_ghost: ghost,
+                                    });
+                                    slot_to_leaf[slot_idx(2 * ci + sx, 2 * cj + sy, 2 * ck + sz)] =
+                                        li;
                                 }
                             }
                         }
                     } else {
-                        let center = [lo[0] + 0.5 * dc[0], lo[1] + 0.5 * dc[1], lo[2] + 0.5 * dc[2]];
+                        let center = [
+                            lo[0] + 0.5 * dc[0],
+                            lo[1] + 0.5 * dc[1],
+                            lo[2] + 0.5 * dc[2],
+                        ];
                         let li = leaves.len();
-                        leaves.push(Leaf { level: 0, center, size: dc, is_ghost: ghost });
+                        leaves.push(Leaf {
+                            level: 0,
+                            center,
+                            size: dc,
+                            coarse: cc,
+                            is_ghost: ghost,
+                        });
                         for sx in 0..2 {
                             for sy in 0..2 {
                                 for sz in 0..2 {
-                                    slot_to_leaf[slot_idx(2 * ci + sx, 2 * cj + sy, 2 * ck + sz)] = li;
+                                    slot_to_leaf[slot_idx(2 * ci + sx, 2 * cj + sy, 2 * ck + sz)] =
+                                        li;
                                 }
                             }
                         }
@@ -163,7 +185,11 @@ impl ForestMesh {
                         // Orient so `owner` is the local (interior) leaf.
                         let (owner, other, sign, patch) = if !ag {
                             // a (−side) is interior: outward normal points +axis.
-                            let p = if bg { Some((2 * axis + 1) as u32) } else { None };
+                            let p = if bg {
+                                Some((2 * axis + 1) as u32)
+                            } else {
+                                None
+                            };
                             (a, b, 1.0, p)
                         } else {
                             // a is ghost ⇒ b (+side) is interior; outward normal −axis.
@@ -178,25 +204,112 @@ impl ForestMesh {
                         ];
                         if leaves[owner].level != leaves[other].level {
                             coarse_fine.push(CoarseFineFace {
-                                coarse: if leaves[owner].level == 0 { owner } else { other },
-                                fine: if leaves[owner].level == 1 { owner } else { other },
+                                coarse: if leaves[owner].level == 0 {
+                                    owner
+                                } else {
+                                    other
+                                },
+                                fine: if leaves[owner].level == 1 {
+                                    owner
+                                } else {
+                                    other
+                                },
                                 area_normal,
                                 centroid,
                             });
                         }
-                        faces.push(Face { owner, other, area_normal, centroid, patch });
+                        faces.push(Face {
+                            owner,
+                            other,
+                            area_normal,
+                            centroid,
+                            patch,
+                        });
                     }
                 }
             }
         }
 
-        ForestMesh { leaves, n_local, faces, coarse_fine, halo: HaloPlan::empty() }
+        ForestMesh {
+            leaves,
+            base_dims: nct,
+            n_local,
+            faces,
+            coarse_fine,
+            halo: HaloPlan::empty(),
+        }
     }
 
     /// Number of leaves at each refinement level (for diagnostics/tests).
     pub fn level_counts(&self) -> (usize, usize) {
         let fine = self.leaves.iter().filter(|l| l.level == 1).count();
         (self.leaves.len() - fine, fine)
+    }
+
+    /// Ghost-inclusive dimensions of the coarse/base hierarchy level.
+    ///
+    /// This is the level that exists before selected cells are split into fine
+    /// leaves. Field arrays passed to [`restrict_to_base`](Self::restrict_to_base)
+    /// and [`prolong_from_base`](Self::prolong_from_base) use this flat layout.
+    pub fn base_dims(&self) -> [usize; 3] {
+        self.base_dims
+    }
+
+    /// Number of cells in the ghost-inclusive coarse/base hierarchy level.
+    pub fn n_base_cells_total(&self) -> usize {
+        self.base_dims[0] * self.base_dims[1] * self.base_dims[2]
+    }
+
+    fn base_idx(&self, c: [usize; 3]) -> usize {
+        (c[0] * self.base_dims[1] + c[1]) * self.base_dims[2] + c[2]
+    }
+
+    /// Restrict an AMR leaf field to the coarse/base hierarchy level.
+    ///
+    /// The restriction is volume-weighted: an unrefined base cell copies its one
+    /// leaf value, while a refined base cell receives the mean of its child leaf
+    /// values weighted by child volume. The operator is purely geometric and does
+    /// not assume anything about the stored quantity.
+    pub fn restrict_to_base(&self, amr: &[f64], base: &mut [f64]) {
+        assert_eq!(amr.len(), self.n_cells_total(), "AMR field length mismatch");
+        assert_eq!(
+            base.len(),
+            self.n_base_cells_total(),
+            "base field length mismatch"
+        );
+
+        base.fill(0.0);
+        let mut volume = vec![0.0; base.len()];
+        for (leaf_i, leaf) in self.leaves.iter().enumerate() {
+            let b = self.base_idx(leaf.coarse);
+            let v = leaf.size[0] * leaf.size[1] * leaf.size[2];
+            base[b] += amr[leaf_i] * v;
+            volume[b] += v;
+        }
+        for (b, v) in base.iter_mut().zip(volume) {
+            if v > 0.0 {
+                *b /= v;
+            }
+        }
+    }
+
+    /// Prolong a coarse/base hierarchy field back onto the AMR leaves.
+    ///
+    /// Piecewise-constant injection fills each leaf with its parent base-cell
+    /// value. Combined with [`restrict_to_base`](Self::restrict_to_base), this is
+    /// the geometric transfer pair needed by multigrid-style hierarchy code; a
+    /// solver tier supplies the operator, smoother, and cycle.
+    pub fn prolong_from_base(&self, base: &[f64], amr: &mut [f64]) {
+        assert_eq!(
+            base.len(),
+            self.n_base_cells_total(),
+            "base field length mismatch"
+        );
+        assert_eq!(amr.len(), self.n_cells_total(), "AMR field length mismatch");
+
+        for (leaf_i, leaf) in self.leaves.iter().enumerate() {
+            amr[leaf_i] = base[self.base_idx(leaf.coarse)];
+        }
     }
 }
 
@@ -289,7 +402,11 @@ mod tests {
         for c in 0..n {
             if m.is_local_cell(c) {
                 for d in 0..3 {
-                    assert!(net[c][d].abs() < 1e-12, "cell {c} axis {d} net area {}", net[c][d]);
+                    assert!(
+                        net[c][d].abs() < 1e-12,
+                        "cell {c} axis {d} net area {}",
+                        net[c][d]
+                    );
                 }
             }
         }
@@ -335,5 +452,61 @@ mod tests {
         let mut n_cf = 0;
         m.for_each_coarse_fine_face(&mut |_| n_cf += 1);
         assert!(n_cf > 0, "expected coarse/fine interface faces");
+    }
+
+    #[test]
+    fn restriction_of_prolongation_is_identity_on_base_level() {
+        let m = ForestMesh::from_config(&cfg());
+        let base: Vec<f64> = (0..m.n_base_cells_total())
+            .map(|i| (0.25 * i as f64).sin() + 0.1 * i as f64)
+            .collect();
+
+        let mut amr = vec![0.0; m.n_cells_total()];
+        m.prolong_from_base(&base, &mut amr);
+
+        let mut back = vec![0.0; m.n_base_cells_total()];
+        m.restrict_to_base(&amr, &mut back);
+
+        let max_err = base
+            .iter()
+            .zip(&back)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f64, f64::max);
+        assert!(max_err < 1e-14, "R(P(x)) deviated from x by {max_err:e}");
+    }
+
+    #[test]
+    fn prolong_restrict_of_smooth_amr_field_is_near_identity() {
+        // Acceptance test: start with a smooth leaf field on the AMR hierarchy,
+        // restrict it to the base level, prolong it back, and verify the
+        // two-level transfer is a close approximation. Piecewise-constant
+        // prolongation cannot reproduce a sloped field exactly, but the error is
+        // bounded by the field gradient times the child-centroid offset.
+        let m = ForestMesh::from_config(&cfg());
+        let smooth = |p: Vec3| 0.2 * p[0] + 0.1 * p[1] + 0.05 * p[2] + 1.0;
+        let original: Vec<f64> = (0..m.n_cells_total())
+            .map(|c| smooth(m.cell_centroid(c)))
+            .collect();
+
+        let mut base = vec![0.0; m.n_base_cells_total()];
+        m.restrict_to_base(&original, &mut base);
+
+        let mut roundtrip = vec![0.0; m.n_cells_total()];
+        m.prolong_from_base(&base, &mut roundtrip);
+
+        let mut max_err = 0.0f64;
+        let mut l2 = 0.0f64;
+        let mut n = 0usize;
+        for c in 0..m.n_cells_total() {
+            if m.is_local_cell(c) {
+                let err = (roundtrip[c] - original[c]).abs();
+                max_err = max_err.max(err);
+                l2 += err * err;
+                n += 1;
+            }
+        }
+        let rms = (l2 / n as f64).sqrt();
+        assert!(max_err < 2.2e-2, "P(R(u)) max error {max_err:e}");
+        assert!(rms < 1.3e-2, "P(R(u)) RMS error {rms:e}");
     }
 }
