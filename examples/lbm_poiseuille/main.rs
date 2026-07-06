@@ -331,4 +331,28 @@ fn main() {
         metrics.linf_abs,
         mass_drift,
     );
+
+    let registry = app
+        .get_resource_ref::<FieldRegistry>()
+        .expect("FieldRegistry resource");
+    let fields = registry.expect::<LbmFields>("LbmFields must be registered");
+    let height = dims[1] as f64;
+    for j in 0..dims[1] {
+        let mut ux_sum = 0.0;
+        for i in 0..dims[0] {
+            let (_, ux, _) = macroscopic(&fields.f[mesh.idx(i, j, 0)], lbm.force_x);
+            ux_sum += ux;
+        }
+        let y = j as f64 + 0.5;
+        let ux = ux_sum / dims[0] as f64;
+        let ux_exact = lbm.force_x * y * (height - y) / (2.0 * lbm.viscosity());
+        println!(
+            "PROFILE j={} y={:.8e} ux={:.8e} ux_exact={:.8e} abs_error={:.8e}",
+            j,
+            y,
+            ux,
+            ux_exact,
+            (ux - ux_exact).abs(),
+        );
+    }
 }
