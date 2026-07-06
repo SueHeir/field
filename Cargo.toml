@@ -22,9 +22,9 @@ repository = "https://github.com/SueHeir/field"
 # DIRT path-patches SOIL during local development.
 [workspace.dependencies]
 field_derive = { path = "crates/field_derive" }
-grass_app = { path = "../grass/crates/grass_app" }
-grass_scheduler = { path = "../grass/crates/grass_scheduler" }
-grass_derive = { path = "../grass/crates/grass_derive" }
-grass_mpi = { path = "../grass/crates/grass_mpi" }
-grass_io = { path = "../grass/crates/grass_io" }
+grass_app = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
+grass_scheduler = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
+grass_derive = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
+grass_mpi = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
+grass_io = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
 serde = { version = "1", features = ["derive"] }
