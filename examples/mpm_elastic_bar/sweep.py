@@ -19,10 +19,13 @@ import os
 import re
 import subprocess
 import sys
+import math
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 SWEEP_DIR = os.path.join(SCRIPT_DIR, "sweep")
+PLOTS_DIR = os.path.join(SCRIPT_DIR, "plots")
+PLOT_PATH = os.path.join(PLOTS_DIR, "transfer_conservation_errors.svg")
 
 CASES = [
     (32, 256),
@@ -122,9 +125,127 @@ def run_cases(exe):
     return rows, ok
 
 
+def _svg_polyline(points):
+    return " ".join(f"{x:.3f},{y:.3f}" for x, y in points)
+
+
+def plot_results(rows):
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+    metrics = [
+        ("mass", 3, "#1f77b4"),
+        ("momentum", 4, "#d62728"),
+        ("density integral", 5, "#2ca02c"),
+        ("affine gather", 6, "#9467bd"),
+    ]
+    width = 920
+    height = 560
+    left = 84
+    right = 252
+    top = 58
+    bottom = 76
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    nx_values = [r[0] for r in rows]
+    x_min = min(nx_values)
+    x_max = max(nx_values)
+    floor = 1.0e-18
+    y_min_log = -18.0
+    y_max_log = -11.0
+
+    def sx(nx):
+        if x_max == x_min:
+            return left + 0.5 * plot_w
+        return left + (nx - x_min) / (x_max - x_min) * plot_w
+
+    def sy(value):
+        v = max(value, floor)
+        logv = math.log10(v)
+        return top + (y_max_log - logv) / (y_max_log - y_min_log) * plot_h
+
+    tol_y = sy(TOL)
+    elements = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="white"/>',
+        f'<text x="{width / 2:.1f}" y="28" text-anchor="middle" font-family="sans-serif" font-size="20" font-weight="700">MPM elastic bar transfer errors vs 1e-12 tolerance</text>',
+        f'<rect x="{left}" y="{top}" width="{plot_w}" height="{plot_h}" fill="#fafafa" stroke="#333" stroke-width="1"/>',
+    ]
+
+    for exponent in range(-18, -10):
+        y = sy(10.0 ** exponent)
+        stroke = "#dddddd" if exponent != -12 else "#444444"
+        dash = " stroke-dasharray=\"7 5\"" if exponent == -12 else ""
+        width_attr = "2" if exponent == -12 else "1"
+        elements.append(
+            f'<line x1="{left}" y1="{y:.3f}" x2="{left + plot_w}" y2="{y:.3f}" '
+            f'stroke="{stroke}" stroke-width="{width_attr}"{dash}/>'
+        )
+        elements.append(
+            f'<text x="{left - 10}" y="{y + 4:.3f}" text-anchor="end" '
+            f'font-family="sans-serif" font-size="12">1e{exponent}</text>'
+        )
+
+    for nx in nx_values:
+        x = sx(nx)
+        elements.append(f'<line x1="{x:.3f}" y1="{top}" x2="{x:.3f}" y2="{top + plot_h}" stroke="#eeeeee"/>')
+        elements.append(
+            f'<text x="{x:.3f}" y="{top + plot_h + 24}" text-anchor="middle" '
+            f'font-family="sans-serif" font-size="13">{nx}</text>'
+        )
+
+    elements.append(
+        f'<text x="{left + plot_w / 2:.1f}" y="{height - 22}" text-anchor="middle" '
+        f'font-family="sans-serif" font-size="14">grid cells in x (particles scale with resolution)</text>'
+    )
+    elements.append(
+        f'<text x="21" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
+        f'font-family="sans-serif" font-size="14" transform="rotate(-90 21 {top + plot_h / 2:.1f})">absolute or relative error (log10)</text>'
+    )
+    elements.append(
+        f'<text x="{left + plot_w + 12}" y="{tol_y + 4:.3f}" font-family="sans-serif" '
+        f'font-size="13" font-weight="700" fill="#333">pass tolerance = 1e-12</text>'
+    )
+
+    for label, idx, color in metrics:
+        points = [(sx(r[0]), sy(r[idx])) for r in rows]
+        elements.append(
+            f'<polyline points="{_svg_polyline(points)}" fill="none" stroke="{color}" '
+            f'stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
+        )
+        for row, (x, y) in zip(rows, points):
+            elements.append(
+                f'<circle cx="{x:.3f}" cy="{y:.3f}" r="4.2" fill="{color}" stroke="white" stroke-width="1.5">'
+                f'<title>{label}: nx={row[0]}, particles={row[1]}, error={row[idx]:.3e}</title></circle>'
+            )
+
+    legend_x = left + plot_w + 32
+    legend_y = top + 70
+    elements.append(f'<text x="{legend_x}" y="{legend_y - 26}" font-family="sans-serif" font-size="15" font-weight="700">Measured error</text>')
+    for i, (label, idx, color) in enumerate(metrics):
+        y = legend_y + i * 30
+        elements.append(f'<line x1="{legend_x}" y1="{y}" x2="{legend_x + 28}" y2="{y}" stroke="{color}" stroke-width="3"/>')
+        elements.append(f'<circle cx="{legend_x + 14}" cy="{y}" r="4" fill="{color}" stroke="white" stroke-width="1"/>')
+        elements.append(f'<text x="{legend_x + 38}" y="{y + 5}" font-family="sans-serif" font-size="13">{label}</text>')
+
+    worst = max(max(r[3], r[4], r[5], r[6]) for r in rows)
+    status = "PASS" if worst <= TOL else "FAIL"
+    elements.append(
+        f'<text x="{legend_x}" y="{legend_y + 142}" font-family="sans-serif" font-size="13">'
+        f'Worst measured error: {worst:.3e}</text>'
+    )
+    elements.append(
+        f'<text x="{legend_x}" y="{legend_y + 164}" font-family="sans-serif" font-size="13" font-weight="700">'
+        f'{status}: all four checks <= {TOL:.1e}</text>'
+    )
+    elements.append("</svg>\n")
+    with open(PLOT_PATH, "w") as f:
+        f.write("\n".join(elements))
+    print(f"\nWrote plot: {os.path.relpath(PLOT_PATH, REPO_ROOT)}")
+
+
 def main():
     exe = build()
     rows, ok = run_cases(exe)
+    plot_results(rows)
     worst_mass = max(r[3] for r in rows)
     worst_momentum = max(r[4] for r in rows)
     worst_density = max(r[5] for r in rows)
