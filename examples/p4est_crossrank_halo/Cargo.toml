@@ -1,0 +1,19 @@
+[package]
+name = "p4est_crossrank_halo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Multi-rank p4est ghost-halo validation for FIELD ForestMesh."
+publish = false
+
+[[bin]]
+name = "p4est_crossrank_halo"
+path = "main.rs"
+
+[dependencies]
+field_core = { path = "../../crates/field_core" }
+field_p4est = { path = "../../crates/field_p4est" }
+grass_io.workspace = true
+grass_mpi.workspace = true
+serde.workspace = true

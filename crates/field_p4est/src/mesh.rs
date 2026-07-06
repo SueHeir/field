@@ -10,7 +10,7 @@
 //!   owner; no separate refluxing pass).
 //! - `Finer`    → skipped: the four fine neighbours emit the faces via `Coarser`.
 //! - `Boundary` → a ghost cell mirrored across the face, for the BC to fill.
-//! - `Ghost`    → skipped (single-rank for now; cross-rank halo is future work).
+//! - `Ghost`    → a cross-rank ghost cell that is filled by the mesh `HaloPlan`.
 //!
 //! The forest is *dynamic*: [`ForestMesh::refine`] / [`coarsen`](ForestMesh::coarsen)
 //! adapt the underlying forest and rebuild the FV topology in place. Pair them

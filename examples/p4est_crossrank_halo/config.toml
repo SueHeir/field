@@ -1,0 +1,14 @@
+[forest]
+trees = [4, 4, 1]
+bounds_lo = [0.0, 0.0, 0.0]
+bounds_hi = [1.0, 1.0, 0.25]
+min_level = 0
+max_level = 1
+refine_center = [0.5, 0.35, 0.125]
+refine_radius = 0.18
+
+[validation]
+expected_ranks = 2
+value_tol = 1.0e-12
+min_cross_rank_ghosts = 1
+min_cross_rank_refinement_faces = 1
