@@ -15,8 +15,8 @@
 //! ```
 //!
 //! Build: links the prebuilt `libp4est.a`/`libsc.a` located via `P4EST_PREFIX`
-//! (see `build.rs`). Single-rank for now; cross-rank halo (p4est ghost layer) is
-//! future work.
+//! (see `build.rs`). Multi-rank forests expose p4est's ghost layer as FIELD
+//! ghost cells and a `HaloPlan`.
 
 mod forest;
 mod mesh;

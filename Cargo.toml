@@ -10,6 +10,7 @@ members = [
     "examples/lbm_poiseuille",
     "examples/matrixfree_laplacian",
     "examples/mpm_elastic_bar",
+    "examples/p4est_crossrank_halo",
 ]
 
 [workspace.package]
