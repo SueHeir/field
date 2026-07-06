@@ -53,3 +53,9 @@ Observed L² convergence (see `sweep.py`):
   n   64 ->  128:  observed L2 order p = 1.999
   mean observed order = 1.995   (theory 2.000)
 ```
+
+![P1 FEM Poisson L2 convergence](plots/l2_convergence.svg)
+
+The sweep PASS figure shows the measured L² error against the P1 `O(h²)`
+reference slope, with the configured observed-order pass band
+`1.8 <= p <= 2.2` and the mean-order gate visible.
