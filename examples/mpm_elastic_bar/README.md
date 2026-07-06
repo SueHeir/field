@@ -24,3 +24,9 @@ cargo run --release -p mpm_elastic_bar -- examples/mpm_elastic_bar/config.toml
 The binary prints one `RESULT` line. `sweep.py` runs a small resolution/particle
 ladder and fails unless mass, momentum, density-integral conservation, and
 grid-to-particle affine gather all pass at tight tolerances.
+
+![MPM elastic bar transfer errors](plots/transfer_conservation_errors.svg)
+
+The sweep result graph shows measured mass, momentum, density-integral, and
+affine-gather transfer errors across the resolution ladder against the `1e-12`
+pass tolerance; the current sweep passes all four gates.
