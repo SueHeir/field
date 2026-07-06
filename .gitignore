@@ -1,1 +1,4 @@
 /target
+
+# local knowledge-graph tooling output
+graphify-out/
