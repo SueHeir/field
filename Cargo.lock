@@ -210,6 +210,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 [[package]]
 name = "grass_app"
 version = "0.1.0"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#d055c52273a3abf90c42b1895a40b644be8ff4af"
 dependencies = [
  "downcast-rs",
  "grass_scheduler",
@@ -218,7 +219,9 @@ dependencies = [
 [[package]]
 name = "grass_derive"
 version = "0.1.0"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#d055c52273a3abf90c42b1895a40b644be8ff4af"
 dependencies = [
+ "heck",
  "proc-macro2",
  "quote",
  "syn",
@@ -227,8 +230,10 @@ dependencies = [
 [[package]]
 name = "grass_io"
 version = "0.1.0"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#d055c52273a3abf90c42b1895a40b644be8ff4af"
 dependencies = [
  "grass_app",
+ "grass_derive",
  "grass_multi",
  "grass_scheduler",
  "serde",
@@ -238,23 +243,29 @@ dependencies = [
 [[package]]
 name = "grass_mpi"
 version = "0.1.0"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#d055c52273a3abf90c42b1895a40b644be8ff4af"
 dependencies = [
  "libffi-sys",
  "mpi",
+ "serde",
 ]
 
 [[package]]
 name = "grass_multi"
 version = "0.1.0"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#d055c52273a3abf90c42b1895a40b644be8ff4af"
 dependencies = [
  "grass_app",
  "grass_derive",
  "grass_scheduler",
+ "serde",
+ "toml",
 ]
 
 [[package]]
 name = "grass_scheduler"
 version = "0.1.0"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#d055c52273a3abf90c42b1895a40b644be8ff4af"
 dependencies = [
  "grass_derive",
 ]
@@ -264,6 +275,12 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "heck"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "indexmap"
