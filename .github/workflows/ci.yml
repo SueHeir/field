@@ -25,10 +25,10 @@ jobs:
           repository: SueHeir/grass
           path: grass
 
-      - name: Install OpenMPI
+      - name: Install OpenMPI and p4est
         run: |
           sudo apt-get update
-          sudo apt-get install -y libopenmpi-dev openmpi-bin
+          sudo apt-get install -y libopenmpi-dev openmpi-bin libp4est-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -36,17 +36,17 @@ jobs:
         with:
           workspaces: field -> target
 
-      # Gate the whole workspace so newly added members/examples are covered
-      # automatically (no hand-maintained package list to drift). field_p4est is
-      # the sole exclusion: it wraps the p4est C library via a build script that
-      # needs a p4est install (P4EST_PREFIX), provisioning tracked separately.
       - name: Build workspace
         working-directory: field
-        run: cargo build --workspace --exclude field_p4est --all-targets
+        env:
+          P4EST_PREFIX: /usr
+        run: cargo build --workspace --all-targets
 
       - name: Test workspace
         working-directory: field
-        run: cargo test --workspace --exclude field_p4est
+        env:
+          P4EST_PREFIX: /usr
+        run: cargo test --workspace
 
       - name: Run validation example
         working-directory: field
