@@ -20,6 +20,20 @@ FIELD owns meshes, per-cell field storage, and halo communication. It knows
 nothing about fluxes, equations of state, or boundary conditions — those live in
 the physics crate on top, exactly as DIRT layers granular physics onto SOIL.
 
+## What a FIELD App looks like
+
+FIELD defines the mesh and field resource types; GRASS holds their instances in
+an `App` and schedules the plugins that operate on them. GRASS does not define
+or interpret a cell, face, halo, or partition. That separation is visible in
+[`field_core`](crates/field_core/src/lib.rs), while the runnable CFD consumer is
+[`dev_field_efvm`](https://github.com/SueHeir/dev_field_efvm).
+
+For coupled runs, FIELD's [`PartitionDirectory`](crates/field_core/src/partition.rs)
+answers the scientific ownership question (which mesh rank owns a point or
+overlap). GRASS only transports the coupling plugin's addressed records. The
+live 3-DEM/2-CFD example is
+[`routed_3x2.rs`](https://github.com/SueHeir/dev_couple_dem_cfd/blob/main/crates/dem_cfd/tests/routed_3x2.rs).
+
 ## Design decisions (and why they differ from toy-cfd)
 
 FIELD is designed from the contracts, not transcribed from the `toy-cfd`
