@@ -25,7 +25,19 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or(default_prefix);
     let p4est_include = p4est_prefix.join("include");
-    let p4est_lib = p4est_prefix.join("lib");
+    let p4est_lib_root = p4est_prefix.join("lib");
+    let p4est_lib = if p4est_lib_root.join("libp4est.a").exists() {
+        p4est_lib_root.clone()
+    } else {
+        std::fs::read_dir(&p4est_lib_root)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| path.join("libp4est.a").exists())
+            .unwrap_or(p4est_lib_root)
+    };
 
     if !p4est_include.exists() {
         panic!(
