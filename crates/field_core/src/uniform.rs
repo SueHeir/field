@@ -594,7 +594,12 @@ pub enum DecompositionError {
     /// MPI reported a non-positive rank count.
     InvalidRankCount(i32),
     /// More ranks were requested than can be assigned without zero-cell ranks.
-    TooManyRanks { size: i32, global: [usize; 3] },
+    TooManyRanks {
+        /// Requested communicator size.
+        size: i32,
+        /// Global cell counts used to constrain the process grid.
+        global: [usize; 3],
+    },
 }
 
 impl fmt::Display for DecompositionError {

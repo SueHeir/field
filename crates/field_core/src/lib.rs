@@ -53,6 +53,7 @@ pub mod halo;
 pub mod hierarchy;
 pub mod mesh;
 pub mod operator;
+pub mod partition;
 pub mod plugin;
 pub mod schedule;
 pub mod uniform;
@@ -72,6 +73,7 @@ pub use mesh::{
     StructuredMesh, Vec3,
 };
 pub use operator::{CellVector, LinearOperator, Vector};
+pub use partition::{Bounds3, PartitionDirectory, PartitionExtent};
 pub use plugin::{
     resize_fields, CommPlugin, FieldDefaultPlugins, FieldRegistryPlugin, UniformMeshPlugin,
 };
@@ -81,9 +83,9 @@ pub use uniform::{DecompositionError, UniformMesh, UniformMeshConfig};
 /// Commonly used FIELD imports.
 pub mod prelude {
     pub use crate::{
-        register_field_data, try_register_field_data, BoundarySide, CommPlugin, Component, Face,
-        DecompositionError, FieldData, FieldDefaultPlugins, FieldRegistry, FieldRegistryError,
-        FieldRegistryPlugin, FvMesh, MeshScheduleSet, StructuredMesh, UniformMesh,
-        UniformMeshConfig, UniformMeshPlugin, Vec3,
+        register_field_data, try_register_field_data, BoundarySide, Bounds3, CommPlugin, Component,
+        DecompositionError, Face, FieldData, FieldDefaultPlugins, FieldRegistry,
+        FieldRegistryError, FieldRegistryPlugin, FvMesh, MeshScheduleSet, PartitionDirectory,
+        PartitionExtent, StructuredMesh, UniformMesh, UniformMeshConfig, UniformMeshPlugin, Vec3,
     };
 }
