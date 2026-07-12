@@ -146,6 +146,13 @@ extern "C" {
         out: *mut AmrFaceNeighbors,
     );
     fn amr_forest_search_point(f: *const AmrForest, x: f64, y: f64, z: f64) -> i64;
+    fn amr_forest_owner_rank(f: *const AmrForest, x: f64, y: f64, z: f64) -> c_int;
+    fn amr_forest_overlapping_ranks(
+        f: *const AmrForest,
+        lo: *const f64,
+        hi: *const f64,
+        out: *mut i32,
+    ) -> c_int;
     fn amr_forest_mpisize(f: *const AmrForest) -> c_int;
     fn amr_forest_mpirank(f: *const AmrForest) -> c_int;
     fn amr_forest_ghost_count(f: *const AmrForest) -> i64;
@@ -531,6 +538,33 @@ impl ForestGrid {
     pub fn find_leaf_at(&mut self, x: f64, y: f64, z: f64) -> Option<usize> {
         let r = unsafe { amr_forest_search_point(self.handle, x, y, z) };
         if r < 0 { None } else { Some(r as usize) }
+    }
+
+    /// Owner rank of a physical point according to p8est's current global
+    /// partition markers. This local query stays valid after repartitioning.
+    pub fn owner_rank_at(&self, point: [f64; 3]) -> Option<i32> {
+        let rank = unsafe { amr_forest_owner_rank(self.handle, point[0], point[1], point[2]) };
+        (rank >= 0).then_some(rank)
+    }
+
+    /// Sorted owner ranks whose current partition has positive-volume overlap
+    /// with an axis-aligned support. Degenerate supports are point queries.
+    /// The query uses p8est's compact global markers and does not communicate.
+    pub fn overlapping_ranks(&self, lo: [f64; 3], hi: [f64; 3]) -> Vec<i32> {
+        let mut marked = vec![0i32; self.mpisize()];
+        unsafe {
+            amr_forest_overlapping_ranks(
+                self.handle,
+                lo.as_ptr(),
+                hi.as_ptr(),
+                marked.as_mut_ptr(),
+            );
+        }
+        marked
+            .into_iter()
+            .enumerate()
+            .filter_map(|(rank, present)| (present != 0).then_some(rank as i32))
+            .collect()
     }
 
     /// Number of root trees in the brick: `trees_x * trees_y * trees_z`.

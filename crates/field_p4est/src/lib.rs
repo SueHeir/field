@@ -20,8 +20,10 @@
 
 mod forest;
 mod mesh;
+mod partition;
 
 pub use forest::{
     finalize, init, Error, Face, FinerSet, ForestGrid, ForestLayout, LeafInfo, NeighborSet,
 };
 pub use mesh::{locate_in, transfer_recursive, ForestMesh};
+pub use partition::ForestPartitionDirectory;

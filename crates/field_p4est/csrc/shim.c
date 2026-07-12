@@ -2,10 +2,12 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include <mpi.h>
 
 #include <p8est_bits.h>
+#include <p8est_communication.h>
 #include <p8est_extended.h>
 #include <p8est_ghost.h>
 #include <p8est_mesh.h>
@@ -409,6 +411,100 @@ int64_t amr_forest_search_point(const AmrForest *f, double x, double y, double z
                      /* points    */ NULL);
   f->p8est->user_pointer = prev;
   return ctx.result;
+}
+
+typedef struct {
+  const AmrForest *forest;
+  double lo[3];
+  double hi[3];
+  int32_t *owners;
+} partition_search_ctx_t;
+
+static int partition_bounds(const AmrForest *f, p4est_topidx_t which_tree,
+                            const p8est_quadrant_t *q,
+                            double lo[3], double hi[3]) {
+  double v0[3], v1[3];
+  p4est_qcoord_t qlen = P8EST_QUADRANT_LEN(q->level);
+  p8est_qcoord_to_vertex(f->conn, which_tree,
+                         q->x, q->y, q->z, v0);
+  p8est_qcoord_to_vertex(f->conn, which_tree,
+                         q->x + qlen, q->y + qlen, q->z + qlen, v1);
+  for (int d = 0; d < 3; ++d) {
+    lo[d] = f->origin[d] + v0[d] * f->scale[d];
+    hi[d] = f->origin[d] + v1[d] * f->scale[d];
+  }
+  return 1;
+}
+
+static int partition_overlap_cb(p8est_t *p8est,
+                                p4est_topidx_t which_tree,
+                                p8est_quadrant_t *q,
+                                int pfirst, int plast, void *point) {
+  (void) p8est;
+  partition_search_ctx_t *ctx = (partition_search_ctx_t *) point;
+  double qlo[3], qhi[3];
+  partition_bounds(ctx->forest, which_tree, q, qlo, qhi);
+  for (int d = 0; d < 3; ++d) {
+    if (!(qlo[d] < ctx->hi[d] && ctx->lo[d] < qhi[d])) return 0;
+  }
+  if (pfirst == plast) {
+    ctx->owners[pfirst] = 1;
+    return 0;
+  }
+  return 1;
+}
+
+int amr_forest_owner_rank(const AmrForest *f, double x, double y, double z) {
+  const double p[3] = {x, y, z};
+  int tree_coord[3];
+  p4est_qcoord_t qcoord[3];
+  for (int d = 0; d < 3; ++d) {
+    const double global_hi = f->origin[d] + f->scale[d] * f->trees[d];
+    if (!isfinite(p[d]) || p[d] < f->origin[d] || p[d] > global_hi) return -1;
+    double logical = (p[d] - f->origin[d]) / f->scale[d];
+    if (logical >= f->trees[d]) {
+      tree_coord[d] = f->trees[d] - 1;
+      qcoord[d] = P8EST_ROOT_LEN - 1;
+      continue;
+    }
+    tree_coord[d] = (int) logical;
+    double within = logical - tree_coord[d];
+    p4est_qcoord_t c = (p4est_qcoord_t) (within * (double) P8EST_ROOT_LEN);
+    if (c >= P8EST_ROOT_LEN) c = P8EST_ROOT_LEN - 1;
+    qcoord[d] = c;
+  }
+  const p4est_topidx_t tree = tree_coord[0]
+    + f->trees[0] * (tree_coord[1] + f->trees[1] * tree_coord[2]);
+  p8est_quadrant_t q;
+  memset(&q, 0, sizeof(q));
+  q.x = qcoord[0]; q.y = qcoord[1]; q.z = qcoord[2];
+  q.level = P8EST_MAXLEVEL;
+  return p8est_comm_find_owner(f->p8est, tree, &q, f->p8est->mpirank);
+}
+
+int amr_forest_overlapping_ranks(const AmrForest *f,
+                                 const double lo[3], const double hi[3],
+                                 int32_t *out) {
+  memset(out, 0, (size_t) f->p8est->mpisize * sizeof(*out));
+  int degenerate = 1;
+  for (int d = 0; d < 3; ++d) {
+    if (lo[d] > hi[d]) return 0;
+    if (lo[d] != hi[d]) degenerate = 0;
+  }
+  if (degenerate) {
+    int owner = amr_forest_owner_rank(f, lo[0], lo[1], lo[2]);
+    if (owner >= 0) out[owner] = 1;
+    return owner >= 0;
+  }
+  partition_search_ctx_t ctx = { .forest = f, .owners = out };
+  memcpy(ctx.lo, lo, sizeof(ctx.lo));
+  memcpy(ctx.hi, hi, sizeof(ctx.hi));
+  sc_array_t points;
+  sc_array_init_data(&points, &ctx, sizeof(ctx), 1);
+  p8est_search_partition(f->p8est, 0, NULL, partition_overlap_cb, &points);
+  int count = 0;
+  for (int r = 0; r < f->p8est->mpisize; ++r) count += out[r] != 0;
+  return count;
 }
 
 /* ─── Phase 7: cross-rank ghost layer exposure ───────────────────────────

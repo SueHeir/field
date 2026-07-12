@@ -16,6 +16,12 @@ FIELD mesh adapter. It remains substrate-level code: refinement criteria,
 equation systems, fluxes, and boundary-condition policies belong in physics
 crates layered above FIELD.
 
+`ForestPartitionDirectory` provides coupling-facing point-owner and
+finite-support overlap queries against the current adaptive partition. It uses
+p4est's replicated global partition markers directly, so lookups neither copy
+the global leaf set nor communicate over MPI. Create the borrowed view after a
+regrid when constructing the next set of coupling routes.
+
 ## Example
 
 ```rust,ignore

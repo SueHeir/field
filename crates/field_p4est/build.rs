@@ -16,7 +16,10 @@ fn main() {
         .and_then(|p| p.parent())
         .and_then(|p| p.parent())
         .expect("manifest dir has three ancestors");
-    let default_prefix = github.join("toy-cfd").join("third_party").join("p4est-install");
+    let default_prefix = github
+        .join("toy-cfd")
+        .join("third_party")
+        .join("p4est-install");
 
     let p4est_prefix = std::env::var("P4EST_PREFIX")
         .map(PathBuf::from)
@@ -32,19 +35,34 @@ fn main() {
         );
     }
 
-    // Open MPI (Homebrew, Apple Silicon). Mirrors `mpicc -showme:link`.
-    let mpi_include = "/opt/homebrew/Cellar/open-mpi/5.0.9/include";
-    let mpi_lib = "/opt/homebrew/Cellar/open-mpi/5.0.9/lib";
+    // Ask pkg-config for the active Open MPI installation. Keep the historical
+    // Homebrew paths as a fallback for machines where `ompi.pc` is absent.
+    let mpi = pkg_config::Config::new()
+        .cargo_metadata(false)
+        .probe("ompi")
+        .ok();
+    let mpi_includes = mpi
+        .as_ref()
+        .map(|lib| lib.include_paths.clone())
+        .unwrap_or_else(|| vec![PathBuf::from("/opt/homebrew/Cellar/open-mpi/5.0.9/include")]);
+    let mpi_libs = mpi
+        .as_ref()
+        .map(|lib| lib.link_paths.clone())
+        .unwrap_or_else(|| vec![PathBuf::from("/opt/homebrew/Cellar/open-mpi/5.0.9/lib")]);
 
-    cc::Build::new()
-        .file("csrc/shim.c")
-        .include(&p4est_include)
-        .include(mpi_include)
+    let mut build = cc::Build::new();
+    build.file("csrc/shim.c").include(&p4est_include);
+    for include in &mpi_includes {
+        build.include(include);
+    }
+    build
         .flag_if_supported("-Wno-unused-parameter")
         .compile("field_p4est_shim");
 
     println!("cargo:rustc-link-search=native={}", p4est_lib.display());
-    println!("cargo:rustc-link-search=native={mpi_lib}");
+    for lib in mpi_libs {
+        println!("cargo:rustc-link-search=native={}", lib.display());
+    }
     println!("cargo:rustc-link-lib=static=p4est");
     println!("cargo:rustc-link-lib=static=sc");
     println!("cargo:rustc-link-lib=mpi");

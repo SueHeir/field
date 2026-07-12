@@ -12,3 +12,4 @@ field_core = { path = "../field_core" }
 
 [build-dependencies]
 cc = "1"
+pkg-config = "0.3"

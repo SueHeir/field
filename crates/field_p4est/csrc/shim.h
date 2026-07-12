@@ -134,6 +134,19 @@ void amr_forest_face_neighbors(const AmrForest *f,
  * domain). */
 int64_t amr_forest_search_point(const AmrForest *f, double x, double y, double z);
 
+/* Query p8est's global partition directory (global_first_position). These
+ * calls are local: every rank already carries the compact partition markers.
+ * Point ownership uses the same half-open convention as p8est, with the
+ * physical high domain boundary included. */
+int amr_forest_owner_rank(const AmrForest *f, double x, double y, double z);
+
+/* Mark every owner rank whose partition has positive-volume overlap with the
+ * physical axis-aligned box. `out` has mpisize entries and is zeroed here.
+ * Degenerate boxes are point queries. Returns the number of marked ranks. */
+int amr_forest_overlapping_ranks(const AmrForest *f,
+                                 const double lo[3], const double hi[3],
+                                 int32_t *out);
+
 /* ─── Phase 7: cross-rank ghost layer exposure ───────────────────────────
  * Accessors over the p4est ghost layer for cross-rank field exchange. On a
  * single rank the ghost layer is empty, so every count below is 0. */
