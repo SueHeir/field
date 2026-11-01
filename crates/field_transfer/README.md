@@ -16,6 +16,10 @@ at the Lagrangian/Eulerian boundary, implemented once so no hybrid re-rolls them
 - [`gather`] — sample a cell field back at the particle positions (grid velocity
   in PIC/MPM, fluid velocity for a drag law in CFD-DEM, image-point value in IBM).
 
+Gradient-based methods (MPM's stress divergence and velocity gradient) also get
+[`TransferMesh::stencil_grad`], the same stencil with `∇w` per cell. Its
+gradients sum to zero and reproduce the gradient of any linear field exactly.
+
 Both use one shape function — cloud-in-cell (trilinear), the eight cells
 bracketing a point — exposed as a fixed-capacity `Stencil` produced by the
 `TransferMesh` trait.

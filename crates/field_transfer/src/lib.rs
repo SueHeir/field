@@ -126,6 +126,56 @@ pub trait TransferMesh {
     /// `None` if the point lies outside the mesh's addressable extent (including
     /// its ghost layers). The returned weights partition unity.
     fn stencil(&self, point: [f64; 3]) -> Option<Stencil>;
+
+    /// The same CIC stencil as [`stencil`](TransferMesh::stencil) plus the
+    /// spatial **gradient** of each weight, `∇w(p, c)`, or `None` outside the
+    /// mesh extent. Gradient-based particle-mesh methods need it: MPM's internal
+    /// force `f_c = -Σ_p V_p σ_p · ∇w(p, c)` and velocity gradient
+    /// `L_p = Σ_c v_c ⊗ ∇w(p, c)`.
+    ///
+    /// The default returns `None` (a mesh that only supports value transfer);
+    /// every FIELD structured mesh provides it through the blanket impl.
+    fn stencil_grad(&self, point: [f64; 3]) -> Option<GradStencil> {
+        let _ = point;
+        None
+    }
+}
+
+/// A CIC stencil with the gradient of every weight, produced by
+/// [`TransferMesh::stencil_grad`].
+///
+/// Because the weights partition unity everywhere inside the mesh, their
+/// gradients sum to zero (`Σ_c ∇w = 0`), and for any linear cell field `f`,
+/// `Σ_c f_c ∇w(p, c) == ∇f` exactly. Those two facts are what make a
+/// gradient-based transfer (MPM stress divergence, velocity gradient)
+/// momentum-conserving and linearly consistent.
+#[derive(Clone, Copy, Debug)]
+pub struct GradStencil {
+    stencil: Stencil,
+    grads: [[f64; 3]; CIC_STENCIL],
+}
+
+impl GradStencil {
+    /// The value-only stencil (identical to [`TransferMesh::stencil`]).
+    pub fn stencil(&self) -> &Stencil {
+        &self.stencil
+    }
+
+    /// Number of `(cell, weight, gradient)` terms.
+    pub fn len(&self) -> usize {
+        self.stencil.len
+    }
+
+    /// Whether the stencil has no terms.
+    pub fn is_empty(&self) -> bool {
+        self.stencil.len == 0
+    }
+
+    /// Iterate the `(cell_index, weight, ∇weight)` terms.
+    pub fn iter(&self) -> impl Iterator<Item = (usize, f64, [f64; 3])> + '_ {
+        (0..self.stencil.len)
+            .map(move |i| (self.stencil.cells[i], self.stencil.weights[i], self.grads[i]))
+    }
 }
 
 /// Every FIELD structured mesh is a transfer mesh: its `locate` gives the cell
@@ -159,6 +209,39 @@ impl<M: StructuredMesh + ?Sized> TransferMesh for M {
             }
         }
         Some(stencil)
+    }
+
+    fn stencil_grad(&self, point: [f64; 3]) -> Option<GradStencil> {
+        // d/dx of the per-axis hat is ±1/h along that axis, where h is the
+        // center-to-center distance across the bracket (read from centroids so
+        // stretched y/z spacing is handled). Each corner's gradient component is
+        // that derivative times the other two axes' hats.
+        let stencil = TransferMesh::stencil(self, point)?;
+        let (lo, t) = self.locate(point)?;
+        let c0 = self.cell_centroid(self.idx_raw(lo[0], lo[1], lo[2]));
+        let h = [
+            self.cell_centroid(self.idx_raw(lo[0] + 1, lo[1], lo[2]))[0] - c0[0],
+            self.cell_centroid(self.idx_raw(lo[0], lo[1] + 1, lo[2]))[1] - c0[1],
+            self.cell_centroid(self.idx_raw(lo[0], lo[1], lo[2] + 1))[2] - c0[2],
+        ];
+        let hat = |a: usize, d: usize| if d == 1 { t[a] } else { 1.0 - t[a] };
+        let dhat = |a: usize, d: usize| if d == 1 { 1.0 / h[a] } else { -1.0 / h[a] };
+        let mut grads = [[0.0; 3]; CIC_STENCIL];
+        let mut n = 0;
+        // Same corner order as `stencil` (di outer, dk inner).
+        for di in 0..2 {
+            for dj in 0..2 {
+                for dk in 0..2 {
+                    grads[n] = [
+                        dhat(0, di) * hat(1, dj) * hat(2, dk),
+                        hat(0, di) * dhat(1, dj) * hat(2, dk),
+                        hat(0, di) * hat(1, dj) * dhat(2, dk),
+                    ];
+                    n += 1;
+                }
+            }
+        }
+        Some(GradStencil { stencil, grads })
     }
 }
 
@@ -480,5 +563,68 @@ mod tests {
         assert_eq!(g.skipped, 2);
         assert!(out[1].is_nan() && out[2].is_nan(), "outside particles get fallback");
         assert!(!out[0].is_nan());
+    }
+
+    #[test]
+    fn stencil_grad_matches_stencil_and_sums_to_zero() {
+        let mesh = test_mesh();
+        let (pos, _) = interior_particles(64, 11);
+        for &p in &pos {
+            let s = mesh.stencil(p).unwrap();
+            let g = mesh.stencil_grad(p).unwrap();
+            assert_eq!(g.len(), s.len());
+            let mut gsum = [0.0; 3];
+            for ((c, w, dw), (c2, w2)) in g.iter().zip(s.iter()) {
+                assert_eq!(c, c2);
+                assert_eq!(w, w2);
+                for a in 0..3 {
+                    gsum[a] += dw[a];
+                }
+            }
+            for a in 0..3 {
+                assert!(gsum[a].abs() < 1e-12, "grad sum {gsum:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn stencil_grad_is_linearly_exact() {
+        // Sum_c f_c grad w(p,c) reproduces grad f for an affine cell field —
+        // including on a mesh stretched in y.
+        let mut cfg = UniformMeshConfig {
+            nx: 8,
+            ny: 6,
+            nz: 5,
+            ng: 2,
+            bounds_lo: [0.0, 0.0, 0.0],
+            bounds_hi: [1.0, 1.0, 1.0],
+            y_edges: Some(vec![0.0, 0.1, 0.25, 0.45, 0.7, 0.85, 1.0]),
+            z_edges: None,
+        };
+        for mesh in [test_mesh(), UniformMesh::from_config(&cfg)] {
+            let f = |x: [f64; 3]| 0.3 + 1.7 * x[0] - 0.4 * x[1] + 2.5 * x[2];
+            let cells: Vec<f64> =
+                (0..mesh.n_cells()).map(|c| f(mesh.cell_centroid(c))).collect();
+            let (pos, _) = interior_particles(64, 5);
+            for &p in &pos {
+                let g = mesh.stencil_grad(p).unwrap();
+                let mut grad = [0.0; 3];
+                for (c, _, dw) in g.iter() {
+                    for a in 0..3 {
+                        grad[a] += cells[c] * dw[a];
+                    }
+                }
+                for (a, want) in [1.7, -0.4, 2.5].into_iter().enumerate() {
+                    assert!((grad[a] - want).abs() < 1e-10, "axis {a}: {grad:?}");
+                }
+            }
+            cfg.y_edges = None;
+        }
+    }
+
+    #[test]
+    fn stencil_grad_outside_is_none() {
+        let mesh = test_mesh();
+        assert!(mesh.stencil_grad([5.0, 0.5, 0.5]).is_none());
     }
 }
