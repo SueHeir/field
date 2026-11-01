@@ -19,18 +19,14 @@ jobs:
         with:
           path: field
 
-      - name: Checkout grass sibling
-        uses: actions/checkout@v4
-        with:
-          repository: SueHeir/grass
-          path: grass
-
       - name: Install OpenMPI and p4est
         run: |
           sudo apt-get update
           sudo apt-get install -y libopenmpi-dev openmpi-bin libp4est-dev
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -41,6 +37,12 @@ jobs:
         env:
           P4EST_PREFIX: /usr
         run: cargo build --workspace --all-targets
+
+      - name: Clippy (deny warnings)
+        working-directory: field
+        env:
+          P4EST_PREFIX: /usr
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test workspace
         working-directory: field

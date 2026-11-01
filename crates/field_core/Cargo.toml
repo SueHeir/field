@@ -13,6 +13,8 @@ grass_app.workspace = true
 grass_scheduler.workspace = true
 grass_derive.workspace = true
 grass_mpi.workspace = true
+# Dependency-free; lets FIELD meshes plug into GRASS mapping/coupling (see `map`).
+grass_map.workspace = true
 
 [features]
 # Forwarded to grass_mpi so a parallel build of FIELD pulls in the real backend.
