@@ -27,5 +27,6 @@ grass_app = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
 grass_scheduler = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
 grass_derive = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
 grass_mpi = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
+grass_map = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
 grass_io = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
 serde = { version = "1", features = ["derive"] }
