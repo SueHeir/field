@@ -57,6 +57,18 @@ impl Default for UniformMeshConfig {
     }
 }
 
+/// Per-axis periodicity for a [`UniformMesh`], as a standalone resource.
+///
+/// Kept separate from [`UniformMeshConfig`] so adding it did not break the many
+/// struct-literal configs downstream. Insert it before setup runs, e.g.
+/// `app.add_resource(MeshPeriodicity([true, false, false]))`, and the mesh
+/// plugin's `PreSetup` decomposition wraps those axes: the low and high faces
+/// become halo links (to another rank, or to this rank itself when the axis is
+/// not split), so the generic halo exchange fills periodic ghosts serial or MPI.
+/// Faces on a periodic side carry no boundary patch.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MeshPeriodicity(pub [bool; 3]);
+
 /// Structured Cartesian grid resource.
 pub struct UniformMesh {
     /// Interior cell counts (local to this rank).
@@ -81,8 +93,11 @@ pub struct UniformMesh {
     ni_total: usize,
     nj_total: usize,
     nk_total: usize,
-    /// Neighbor rank per `[axis][lo=0/hi=1]`; `-1` = physical boundary.
+    /// Neighbor rank per `[axis][lo=0/hi=1]`; `-1` = physical boundary. On a
+    /// periodic axis this wraps, and may be this rank itself.
     neighbor: [[i32; 2]; 3],
+    /// Which axes wrap periodically.
+    periodic: [bool; 3],
     /// Precomputed static halo pattern.
     halo: HaloPlan,
     /// Precomputed per-cell axis neighbours (flat, `6·n_cells_total`), indexed
@@ -104,6 +119,23 @@ impl UniformMesh {
         cfg: &UniformMeshConfig,
         decomp: [i32; 3],
         pos: [i32; 3],
+    ) -> Self {
+        Self::from_config_periodic(cfg, decomp, pos, [false; 3])
+    }
+
+    /// Build this rank's local partition with the given axes wrapped
+    /// periodically. A periodic axis that is not split across ranks gets a
+    /// self-link, so the halo exchange fills its ghosts with a local copy.
+    ///
+    /// # Panics
+    /// If a halo link would need more ghost layers than this rank has interior
+    /// cells along that axis (`ng > local_n`): the send slab would then include
+    /// ghost cells and deliver stale data.
+    pub fn from_config_periodic(
+        cfg: &UniformMeshConfig,
+        decomp: [i32; 3],
+        pos: [i32; 3],
+        periodic: [bool; 3],
     ) -> Self {
         let global_n = [cfg.nx, cfg.ny, cfg.nz];
         let lo = cfg.bounds_lo;
@@ -171,23 +203,26 @@ impl UniformMesh {
         let rank_of =
             |px: i32, py: i32, pz: i32| -> i32 { px * (np[1] * np[2]) + py * np[2] + pz };
         let mut neighbor = [[-1i32; 2]; 3];
-        if pos[0] > 0 {
-            neighbor[0][0] = rank_of(pos[0] - 1, pos[1], pos[2]);
-        }
-        if pos[0] < np[0] - 1 {
-            neighbor[0][1] = rank_of(pos[0] + 1, pos[1], pos[2]);
-        }
-        if pos[1] > 0 {
-            neighbor[1][0] = rank_of(pos[0], pos[1] - 1, pos[2]);
-        }
-        if pos[1] < np[1] - 1 {
-            neighbor[1][1] = rank_of(pos[0], pos[1] + 1, pos[2]);
-        }
-        if pos[2] > 0 {
-            neighbor[2][0] = rank_of(pos[0], pos[1], pos[2] - 1);
-        }
-        if pos[2] < np[2] - 1 {
-            neighbor[2][1] = rank_of(pos[0], pos[1], pos[2] + 1);
+        for dim in 0..3 {
+            for (side, step) in [(0usize, -1i32), (1, 1)] {
+                let mut p = pos;
+                p[dim] += step;
+                if p[dim] < 0 || p[dim] >= np[dim] {
+                    if !periodic[dim] {
+                        continue;
+                    }
+                    p[dim] = p[dim].rem_euclid(np[dim]);
+                }
+                neighbor[dim][side] = rank_of(p[0], p[1], p[2]);
+            }
+            if neighbor[dim] != [-1, -1] {
+                assert!(
+                    local_n[dim] >= ng,
+                    "UniformMesh: axis {dim} has {} local cells but ng = {ng} ghost layers; \
+                     a halo link needs at least ng interior layers",
+                    local_n[dim]
+                );
+            }
         }
 
         let mut mesh = UniformMesh {
@@ -206,6 +241,7 @@ impl UniformMesh {
             nj_total: local_n[1] + 2 * ng,
             nk_total: local_n[2] + 2 * ng,
             neighbor,
+            periodic,
             halo: HaloPlan::empty(),
             axis_nbr: Vec::new(),
         };
@@ -229,10 +265,31 @@ impl UniformMesh {
         (ir, jr, kr)
     }
 
+    /// Which axes wrap periodically.
+    pub fn periodic(&self) -> [bool; 3] {
+        self.periodic
+    }
+
+    /// Neighbor rank across the low (`hi = false`) or high face of `axis`, or
+    /// `None` at a physical (non-periodic) boundary. May be this rank itself on a
+    /// periodic axis that is not split.
+    pub fn neighbor_rank(&self, axis: usize, hi: bool) -> Option<i32> {
+        let r = self.neighbor[axis][hi as usize];
+        (r >= 0).then_some(r)
+    }
+
     /// Translate toy-cfd's slab packing into explicit per-neighbor index lists.
     /// `send_cells` are the `ng` interior layers adjacent to a face; `recv_cells`
     /// are the `ng` ghost layers on that face. Both ends iterate `(g, i1, i2)` in
     /// the same order, so the flat buffers line up cell-for-cell.
+    ///
+    /// When the low and high neighbours along an axis are the *same* rank (a
+    /// periodic axis split in two, or not split at all), the two sides are merged
+    /// into one link: send `[lo slab, hi slab]`, receive into `[hi ghosts, lo
+    /// ghosts]`. That is symmetric — the peer's lo slab lands in our hi ghosts
+    /// and vice versa — so both ends agree without message tags, and the plan
+    /// keeps at most one link per neighbour rank per axis (the ordering contract
+    /// of [`HaloPlan`]).
     fn build_halo_plan(&self) -> HaloPlan {
         let ng = self.ng;
         let n = [self.ni, self.nj, self.nk];
@@ -251,35 +308,38 @@ impl UniformMesh {
                 ijk[dim2] = d2;
                 self.raw_idx(ijk[0], ijk[1], ijk[2])
             };
-
-            // lo side: send the first ng interior layers, recv into lo ghosts.
-            if self.neighbor[dim][0] >= 0 {
-                let mut send = Vec::with_capacity(ng * n1 * n2);
-                let mut recv = Vec::with_capacity(ng * n1 * n2);
+            // `ng` layers along `dim` starting at raw index `start`.
+            let slab = |start: usize| -> Vec<usize> {
+                let mut v = Vec::with_capacity(ng * n1 * n2);
                 for g in 0..ng {
                     for i1 in 0..n1 {
                         for i2 in 0..n2 {
-                            send.push(raw(ng + g, ng + i1, ng + i2));
-                            recv.push(raw(g, ng + i1, ng + i2));
+                            v.push(raw(start + g, ng + i1, ng + i2));
                         }
                     }
                 }
-                links.push(HaloLink { rank: self.neighbor[dim][0], send_cells: send, recv_cells: recv });
+                v
+            };
+            // lo: send the first ng interior layers, recv into the lo ghosts.
+            // hi: send the last ng interior layers, recv into the hi ghosts.
+            let [lo, hi] = self.neighbor[dim];
+            if lo >= 0 && lo == hi {
+                let mut send_cells = slab(ng);
+                send_cells.extend(slab(n[dim]));
+                let mut recv_cells = slab(ng + n[dim]);
+                recv_cells.extend(slab(0));
+                links.push(HaloLink { rank: lo, send_cells, recv_cells });
+                continue;
             }
-
-            // hi side: send the last ng interior layers, recv into hi ghosts.
-            if self.neighbor[dim][1] >= 0 {
-                let mut send = Vec::with_capacity(ng * n1 * n2);
-                let mut recv = Vec::with_capacity(ng * n1 * n2);
-                for g in 0..ng {
-                    for i1 in 0..n1 {
-                        for i2 in 0..n2 {
-                            send.push(raw(n[dim] + g, ng + i1, ng + i2));
-                            recv.push(raw(ng + n[dim] + g, ng + i1, ng + i2));
-                        }
-                    }
-                }
-                links.push(HaloLink { rank: self.neighbor[dim][1], send_cells: send, recv_cells: recv });
+            if lo >= 0 {
+                links.push(HaloLink { rank: lo, send_cells: slab(ng), recv_cells: slab(0) });
+            }
+            if hi >= 0 {
+                links.push(HaloLink {
+                    rank: hi,
+                    send_cells: slab(n[dim]),
+                    recv_cells: slab(ng + n[dim]),
+                });
             }
         }
 

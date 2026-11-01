@@ -48,6 +48,13 @@ jobs:
           P4EST_PREFIX: /usr
         run: cargo test --workspace
 
+      # The default build uses grass_mpi's serial backend, so the multi-rank
+      # halo test only runs here: it re-launches itself under `mpirun` on 2, 3,
+      # 4 and 8 ranks, with every combination of periodic axes.
+      - name: Test field_core with the MPI backend (mpirun)
+        working-directory: field
+        run: cargo test -p field_core --features mpi_backend
+
       - name: Run validation example
         working-directory: field
         run: python3 examples/fem_poisson/sweep.py

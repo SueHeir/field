@@ -88,7 +88,13 @@ prototype it replaces. Three deliberate departures:
   into a process grid, records it on the comm, and rebuilds the local partition
   (so serial and MPI use the same call site). `mpi_backend` feature compiles.
 
-Builds and tests green (20 tests); `--features mpi_backend` compiles.
+  Halo links are exchanged concurrently in one non-blocking batch. Periodic axes
+  are opt-in through a `MeshPeriodicity` resource and work on one rank or many
+  (the wrap is just another halo link, or a local copy when the axis isn't split).
+
+CI builds and tests the workspace, and runs the multi-rank halo test under
+`mpirun` (2, 3, 4 and 8 ranks, every periodic combination) with
+`--features mpi_backend`.
 
 The substrate is feature-complete for milestone **M1** (explicit, structured,
 serial + MPI). Remaining FIELD work belongs to later milestones:

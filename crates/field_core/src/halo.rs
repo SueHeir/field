@@ -23,7 +23,7 @@
 //! deferred until general IBM-under-MPI requires it.
 
 use crate::field_data::{FieldData, FieldRegistry};
-use grass_mpi::CommBackend;
+use grass_mpi::{CommBackend, SendRecvOp};
 
 /// One neighbor-rank link in a [`HaloPlan`].
 ///
@@ -52,6 +52,17 @@ pub struct HaloLink {
 /// so the ordering must hold in both directions. (The p4est backend gets this for
 /// free from p4est's matched mirror/ghost ordering; a structured-pencil backend
 /// gets it from matching face traversal on both sides.)
+///
+/// **Multiple links to one rank.** All links are exchanged concurrently in one
+/// untagged batch, so MPI pairs messages between two ranks in posting order: the
+/// `k`-th link to rank `r` in this plan pairs with the `k`-th link back to us in
+/// `r`'s plan. Producers either keep one link per neighbour rank or emit
+/// repeated links in an order both ends agree on ([`crate::UniformMesh`] emits at
+/// most one per axis, axes in x, y, z order).
+///
+/// **Self links.** A link whose `rank` is this rank (a periodic axis that is not
+/// split) is exchanged as a local copy, never through MPI, so it works on the
+/// serial backend too.
 #[derive(Default)]
 pub struct HaloPlan {
     /// Per-neighbour exchange links that make up this plan.
@@ -64,36 +75,106 @@ impl HaloPlan {
         Self { links: Vec::new() }
     }
 
-    /// `true` when there is nothing to exchange (serial run).
+    /// `true` when there is nothing to exchange: a serial, non-periodic run. (A
+    /// serial periodic mesh has self links, so it is not "serial" here.)
     pub fn is_serial(&self) -> bool {
         self.links.is_empty()
     }
 }
 
+/// Which way a [`HaloLink`] is walked.
+#[derive(Clone, Copy)]
+enum Direction {
+    /// owner (`send_cells`) → ghost (`recv_cells`)
+    Forward,
+    /// ghost (`recv_cells`) → owner (`send_cells`)
+    Reverse,
+}
+
+/// Exchange every link of `plan` at once: pack all send buffers, post every
+/// remote swap in one non-blocking batch (so neighbours along an axis no longer
+/// wait on each other in a chain, and receive sizes are known up front — no
+/// `MPI_Probe`), copy self links locally, then unpack in link order.
+fn exchange(
+    plan: &HaloPlan,
+    comm: &dyn CommBackend,
+    per: usize,
+    dir: Direction,
+    mut pack: impl FnMut(usize, &mut Vec<f64>),
+    mut unpack: impl FnMut(usize, &[f64]) -> usize,
+) {
+    if per == 0 || plan.links.is_empty() {
+        return;
+    }
+    fn cells(link: &HaloLink, dir: Direction) -> (&[usize], &[usize]) {
+        match dir {
+            Direction::Forward => (&link.send_cells, &link.recv_cells),
+            Direction::Reverse => (&link.recv_cells, &link.send_cells),
+        }
+    }
+
+    let mut sends: Vec<Vec<f64>> = Vec::with_capacity(plan.links.len());
+    let mut recvs: Vec<Vec<f64>> = Vec::with_capacity(plan.links.len());
+    for link in &plan.links {
+        let (out, inn) = cells(link, dir);
+        let mut buf = Vec::with_capacity(out.len() * per);
+        for &c in out {
+            pack(c, &mut buf);
+        }
+        recvs.push(vec![0.0; inn.len() * per]);
+        sends.push(buf);
+    }
+
+    let me = comm.rank();
+    let mut ops: Vec<SendRecvOp<'_>> = Vec::with_capacity(plan.links.len());
+    for ((link, send), recv) in plan.links.iter().zip(&sends).zip(recvs.iter_mut()) {
+        if link.rank == me {
+            debug_assert_eq!(send.len(), recv.len(), "self halo link size mismatch");
+            recv.copy_from_slice(send);
+        } else {
+            ops.push(SendRecvOp {
+                dest: link.rank,
+                send_buf: send,
+                source: link.rank,
+                recv_buf: recv,
+            });
+        }
+    }
+    if !ops.is_empty() {
+        comm.sendrecv_batch_f64_into(&mut ops);
+    }
+    drop(ops);
+
+    for (link, recv) in plan.links.iter().zip(&recvs) {
+        let (_, inn) = cells(link, dir);
+        let mut off = 0;
+        for &c in inn {
+            off += unpack(c, &recv[off..]);
+        }
+        debug_assert_eq!(off, recv.len(), "halo size mismatch");
+    }
+}
+
 /// Forward-exchange a single [`FieldData`] store: owner cells → ghost cells,
 /// overwrite semantics. No-op when the store has no forward fields or the plan
-/// is serial.
+/// is empty.
 pub fn halo_exchange_forward(
     plan: &HaloPlan,
     field: &mut dyn FieldData,
     comm: &dyn CommBackend,
 ) {
     let per = field.forward_size();
-    if per == 0 {
-        return;
-    }
-    for link in &plan.links {
-        let mut send = Vec::with_capacity(link.send_cells.len() * per);
-        for &c in &link.send_cells {
-            field.pack_forward(c, &mut send);
-        }
-        let recv = comm.sendrecv_f64(link.rank, &send, link.rank);
-        let mut off = 0;
-        for &c in &link.recv_cells {
-            off += field.unpack_forward(c, &recv[off..]);
-        }
-        debug_assert_eq!(off, recv.len(), "forward halo size mismatch");
-    }
+    // `pack` only reads and `unpack` only runs after every pack, but both
+    // closures need the store; route them through a RefCell.
+    let field = std::cell::RefCell::new(field);
+    exchange(
+        plan,
+        comm,
+        per,
+        Direction::Forward,
+        |c, buf| field.borrow().pack_forward(c, buf),
+        |c, buf| field.borrow_mut().unpack_forward(c, buf),
+    );
 }
 
 /// Forward-exchange **every** forward-participating store in the registry in one
@@ -105,22 +186,14 @@ pub fn halo_exchange_forward_all(
     registry: &FieldRegistry,
     comm: &dyn CommBackend,
 ) {
-    let per = registry.forward_size();
-    if per == 0 {
-        return;
-    }
-    for link in &plan.links {
-        let mut send = Vec::with_capacity(link.send_cells.len() * per);
-        for &c in &link.send_cells {
-            registry.pack_forward_all(c, &mut send);
-        }
-        let recv = comm.sendrecv_f64(link.rank, &send, link.rank);
-        let mut off = 0;
-        for &c in &link.recv_cells {
-            off += registry.unpack_forward_all(c, &recv[off..]);
-        }
-        debug_assert_eq!(off, recv.len(), "forward halo size mismatch");
-    }
+    exchange(
+        plan,
+        comm,
+        registry.forward_size(),
+        Direction::Forward,
+        |c, buf| registry.pack_forward_all(c, buf),
+        |c, buf| registry.unpack_forward_all(c, buf),
+    );
 }
 
 /// Reverse-exchange every reverse-participating store: ghost contributions →
@@ -132,22 +205,12 @@ pub fn halo_exchange_reverse_all(
     registry: &FieldRegistry,
     comm: &dyn CommBackend,
 ) {
-    let per = registry.reverse_size();
-    if per == 0 {
-        return;
-    }
-    for link in &plan.links {
-        // Reverse: pack what we received as ghosts (recv_cells), add into the
-        // interior cells we originally sent from (send_cells).
-        let mut send = Vec::with_capacity(link.recv_cells.len() * per);
-        for &c in &link.recv_cells {
-            registry.pack_reverse_all(c, &mut send);
-        }
-        let recv = comm.sendrecv_f64(link.rank, &send, link.rank);
-        let mut off = 0;
-        for &c in &link.send_cells {
-            off += registry.unpack_reverse_all(c, &recv[off..]);
-        }
-        debug_assert_eq!(off, recv.len(), "reverse halo size mismatch");
-    }
+    exchange(
+        plan,
+        comm,
+        registry.reverse_size(),
+        Direction::Reverse,
+        |c, buf| registry.pack_reverse_all(c, buf),
+        |c, buf| registry.unpack_reverse_all(c, buf),
+    );
 }

@@ -78,14 +78,14 @@ pub use plugin::{
     resize_fields, CommPlugin, FieldDefaultPlugins, FieldRegistryPlugin, UniformMeshPlugin,
 };
 pub use schedule::MeshScheduleSet;
-pub use uniform::{DecompositionError, UniformMesh, UniformMeshConfig};
+pub use uniform::{DecompositionError, MeshPeriodicity, UniformMesh, UniformMeshConfig};
 
 /// Commonly used FIELD imports.
 pub mod prelude {
     pub use crate::{
         register_field_data, try_register_field_data, BoundarySide, Bounds3, CommPlugin, Component,
         DecompositionError, Face, FieldData, FieldDefaultPlugins, FieldRegistry,
-        FieldRegistryError, FieldRegistryPlugin, FvMesh, MeshScheduleSet, PartitionDirectory,
+        FieldRegistryError, FieldRegistryPlugin, FvMesh, MeshPeriodicity, MeshScheduleSet, PartitionDirectory,
         PartitionExtent, StructuredMesh, UniformMesh, UniformMeshConfig, UniformMeshPlugin, Vec3,
     };
 }

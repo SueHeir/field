@@ -16,7 +16,7 @@
 //! ```
 
 use crate::uniform::{factor_decomposition, rank_position};
-use crate::{FieldRegistry, FvMesh, UniformMesh, UniformMeshConfig};
+use crate::{FieldRegistry, FvMesh, MeshPeriodicity, UniformMesh, UniformMeshConfig};
 use grass_app::prelude::*;
 use grass_mpi::CommResource;
 use grass_scheduler::{Res, ResMut};
@@ -92,15 +92,21 @@ impl Plugin for UniformMeshPlugin {
 }
 
 /// `PreSetup`: factor the rank count into a process grid, record it on the comm
-/// backend, and rebuild the local mesh partition. A serial run (`size == 1`)
-/// leaves the single-process mesh untouched.
+/// backend, and rebuild the local mesh partition, wrapping any axes named by an
+/// optional [`MeshPeriodicity`] resource. A serial, non-periodic run leaves the
+/// single-process mesh untouched.
 fn decompose_mesh(
     cfg: Res<UniformMeshConfig>,
+    periodic: Option<Res<MeshPeriodicity>>,
     mut comm: ResMut<CommResource>,
     mut mesh: ResMut<UniformMesh>,
 ) {
+    let periodic = periodic.map(|p| p.0).unwrap_or([false; 3]);
     let size = comm.size();
     if size <= 1 {
+        if periodic != [false; 3] {
+            *mesh = UniformMesh::from_config_periodic(&cfg, [1, 1, 1], [0, 0, 0], periodic);
+        }
         return;
     }
     let rank = comm.rank();
@@ -108,7 +114,7 @@ fn decompose_mesh(
         .unwrap_or_else(|e| panic!("UniformMesh decomposition failed: {e}"));
     let pos = rank_position(rank, decomp);
     comm.set_processor_grid(decomp, pos);
-    *mesh = UniformMesh::from_config_decomposed(&cfg, decomp, pos);
+    *mesh = UniformMesh::from_config_periodic(&cfg, decomp, pos, periodic);
 }
 
 /// `Setup`: size every registered field to the (now-final) mesh cell count, once.
