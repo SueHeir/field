@@ -75,7 +75,7 @@ pub use mesh::{
     AdaptiveMesh, BoundarySide, CartesianMesh, CoarseFineFace, Face, FvMesh, PatchId,
     StructuredMesh, Vec3,
 };
-pub use operator::{CellVector, LinearOperator, Vector};
+pub use operator::CellVector;
 pub use partition::{Bounds3, PartitionDirectory, PartitionExtent};
 pub use plugin::{
     resize_fields, CommPlugin, FieldDefaultPlugins, FieldRegistryPlugin, UniformMeshPlugin,
@@ -88,7 +88,8 @@ pub mod prelude {
     pub use crate::{
         register_field_data, try_register_field_data, BoundarySide, Bounds3, CommPlugin, Component,
         DecompositionError, Face, FieldData, FieldDefaultPlugins, FieldRegistry,
-        FieldRegistryError, FieldRegistryPlugin, FvMesh, MeshPeriodicity, MeshScheduleSet, PartitionDirectory,
-        PartitionExtent, StructuredMesh, UniformMesh, UniformMeshConfig, UniformMeshPlugin, Vec3,
+        FieldRegistryError, FieldRegistryPlugin, FvMesh, MeshPeriodicity, MeshScheduleSet,
+        PartitionDirectory, PartitionExtent, StructuredMesh, UniformMesh, UniformMeshConfig,
+        UniformMeshPlugin, Vec3,
     };
 }

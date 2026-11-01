@@ -1,85 +1,35 @@
-//! [`Vector`] and [`LinearOperator`] — the matrix-free algebra a Krylov solver
-//! (CG, GMRES, BiCGStab) is written against, plus [`CellVector`], the concrete
-//! [`FieldData`]-backed vector that carries a solve's DOFs on the FIELD substrate.
+//! [`CellVector`]: the [`FieldData`]-backed vector that carries a solve's DOFs on
+//! the FIELD substrate.
 //!
-//! # Why this lives in the substrate (and stays equation-agnostic)
+//! # Where the solver lives
 //!
-//! A Krylov method needs exactly two things from the problem it solves: a way to
-//! form linear combinations and inner products of solution-shaped vectors
-//! (`Vector`), and a way to apply the operator to a vector *without ever building
-//! the matrix* (`LinearOperator::apply`). Neither knows what the operator *is* —
-//! CG converges the same whether `A` is a pressure-Poisson Laplacian, an implicit
-//! diffusion operator, or a Helmholtz shift. So the interface is pure substrate:
-//! FIELD supplies the vector space over its cells; a solver tier on top supplies
-//! the iteration, and a physics tier supplies the concrete `A`.
-//!
-//! This is the deliberate mirror of what [`crate::hierarchy`] does for geometric
-//! multigrid — one exposes the grid *hierarchy*, this one exposes the *vector
-//! space and operator seam* — so a global/implicit solver can be built on FIELD
-//! for **any** mesh equation without the substrate learning a single flux, EOS, or
-//! boundary condition.
+//! FIELD does not define its own operator or Krylov traits. The shared,
+//! MPI-aware solvers (CG, preconditioned CG, Picard) live in GRASS's
+//! `grass_linalg`, which works on plain `&[f64]` slices and all-reduces its inner
+//! products through `grass_mpi`. A mesh solver hands it [`CellVector::as_slice`]
+//! / [`CellVector::as_mut_slice`] (the full ghost-inclusive layout, with
+//! non-owned entries kept zero) and implements `grass_linalg::LinearOperator` for
+//! its stencil, halo-exchanging a `CellVector` scratch before reading
+//! cross-rank neighbours. The physics tier supplies the concrete operator;
+//! FIELD supplies the vector space over its cells, the halo plan, and the
+//! [`crate::hierarchy`] grid transfers a multigrid preconditioner needs.
 //!
 //! # `CellVector`: a `FieldData` vector
 //!
 //! [`CellVector`] stores one `f64` per cell in the mesh's full, ghost-inclusive
 //! layout and implements [`FieldData`], so a **matrix-free** operator can halo-
 //! exchange it (`owner → ghost`) before reading a stencil across a rank boundary,
-//! exactly like any other registered field. Its reductions ([`dot`](CellVector::dot),
-//! [`norm`](CellVector::norm)) run over **owned** cells only, so once each rank's
-//! partial is summed with an MPI all-reduce they give the correct global inner
-//! product; the elementwise ops ([`axpy`](CellVector::axpy),
-//! [`scale`](CellVector::scale), …) run over the whole store (touching ghosts is
-//! harmless and avoids a branch). The all-reduce itself is a solver-tier concern —
-//! the substrate exposes the owned-only local reduction and the halo plan, and a
-//! parallel Krylov layer wires in the collective.
+//! exactly like any other registered field. Its convenience reductions
+//! ([`dot`](CellVector::dot), [`norm`](CellVector::norm)) run over **owned**
+//! cells only and are rank-local; the elementwise ops
+//! ([`axpy`](CellVector::axpy), [`scale`](CellVector::scale), …) run over the
+//! whole store (touching ghosts is harmless and avoids a branch).
 
 use std::any::Any;
 use std::sync::Arc;
 
 use crate::field_data::FieldData;
 use crate::FvMesh;
-
-/// The abstract vector operations a Krylov iteration uses. Written as a trait so a
-/// solver tier can be generic over the vector type (a mesh [`CellVector`] today, a
-/// coupled particle+mesh vector later) while staying blind to the substrate.
-///
-/// Reductions ([`dot`](Vector::dot), [`norm`](Vector::norm)) are the *local* (this
-/// rank, owned-DOF) contribution; a parallel solver sums them across ranks. All
-/// operations assume the two vectors share a layout (same mesh).
-pub trait Vector {
-    /// Local inner product `⟨self, other⟩` over owned DOFs.
-    fn dot(&self, other: &Self) -> f64;
-
-    /// Local Euclidean norm `√⟨self, self⟩` over owned DOFs. For a parallel global
-    /// norm, reduce [`dot`](Vector::dot) across ranks and take the root there.
-    fn norm(&self) -> f64 {
-        self.dot(self).sqrt()
-    }
-
-    /// `self ← self + alpha · x` (AXPY).
-    fn axpy(&mut self, alpha: f64, x: &Self);
-
-    /// `self ← alpha · self`.
-    fn scale(&mut self, alpha: f64);
-
-    /// `self ← x` (copy contents).
-    fn copy_from(&mut self, x: &Self);
-
-    /// Set every entry to `value`.
-    fn fill(&mut self, value: f64);
-}
-
-/// A matrix-free linear operator `A`: given `x`, produce `y = A·x` **without
-/// assembling `A`**. The whole point of the substrate seam — an implementor reads
-/// `x` (halo-exchanging first if it needs off-rank neighbours) and writes `y`,
-/// evaluating the stencil on the fly.
-pub trait LinearOperator {
-    /// The vector type this operator maps between.
-    type Vector;
-
-    /// Compute `y ← A · x`. `x` and `y` must not alias.
-    fn apply(&self, x: &Self::Vector, y: &mut Self::Vector);
-}
 
 /// A vector of one `f64` DOF per mesh cell, stored in the mesh's full
 /// ghost-inclusive layout and exchangeable as [`FieldData`].
@@ -152,8 +102,9 @@ impl CellVector {
     }
 }
 
-impl Vector for CellVector {
-    fn dot(&self, other: &Self) -> f64 {
+impl CellVector {
+    /// Rank-local inner product `⟨self, other⟩` over owned cells.
+    pub fn dot(&self, other: &Self) -> f64 {
         debug_assert_eq!(
             self.values.len(),
             other.values.len(),
@@ -165,20 +116,28 @@ impl Vector for CellVector {
             .sum()
     }
 
-    fn axpy(&mut self, alpha: f64, x: &Self) {
+    /// Rank-local Euclidean norm over owned cells.
+    pub fn norm(&self) -> f64 {
+        self.dot(self).sqrt()
+    }
+
+    /// `self ← self + alpha · x` (AXPY).
+    pub fn axpy(&mut self, alpha: f64, x: &Self) {
         debug_assert_eq!(self.values.len(), x.values.len(), "axpy: length mismatch");
         for (y, &xi) in self.values.iter_mut().zip(x.values.iter()) {
             *y += alpha * xi;
         }
     }
 
-    fn scale(&mut self, alpha: f64) {
+    /// `self ← alpha · self`.
+    pub fn scale(&mut self, alpha: f64) {
         for y in &mut self.values {
             *y *= alpha;
         }
     }
 
-    fn copy_from(&mut self, x: &Self) {
+    /// `self ← x` (copy contents).
+    pub fn copy_from(&mut self, x: &Self) {
         debug_assert_eq!(
             self.values.len(),
             x.values.len(),
@@ -187,7 +146,8 @@ impl Vector for CellVector {
         self.values.copy_from_slice(&x.values);
     }
 
-    fn fill(&mut self, value: f64) {
+    /// Set every entry to `value`.
+    pub fn fill(&mut self, value: f64) {
         self.values.fill(value);
     }
 }
