@@ -209,8 +209,8 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "grass_app"
-version = "0.1.0"
-source = "git+https://github.com/SueHeir/grass.git?branch=main#b804e7203a0ecb09d3aa5f1503647ff57da291c1"
+version = "0.1.1"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#becbc61ec714c1923986815d22b2779a46a9507f"
 dependencies = [
  "downcast-rs",
  "grass_scheduler",
@@ -218,8 +218,8 @@ dependencies = [
 
 [[package]]
 name = "grass_derive"
-version = "0.1.0"
-source = "git+https://github.com/SueHeir/grass.git?branch=main#b804e7203a0ecb09d3aa5f1503647ff57da291c1"
+version = "0.1.1"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#becbc61ec714c1923986815d22b2779a46a9507f"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -229,8 +229,8 @@ dependencies = [
 
 [[package]]
 name = "grass_io"
-version = "0.1.0"
-source = "git+https://github.com/SueHeir/grass.git?branch=main#b804e7203a0ecb09d3aa5f1503647ff57da291c1"
+version = "0.1.1"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#becbc61ec714c1923986815d22b2779a46a9507f"
 dependencies = [
  "grass_app",
  "grass_derive",
@@ -242,8 +242,8 @@ dependencies = [
 
 [[package]]
 name = "grass_mpi"
-version = "0.1.0"
-source = "git+https://github.com/SueHeir/grass.git?branch=main#b804e7203a0ecb09d3aa5f1503647ff57da291c1"
+version = "0.1.1"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#becbc61ec714c1923986815d22b2779a46a9507f"
 dependencies = [
  "libffi-sys",
  "mpi",
@@ -252,8 +252,8 @@ dependencies = [
 
 [[package]]
 name = "grass_multi"
-version = "0.1.0"
-source = "git+https://github.com/SueHeir/grass.git?branch=main#b804e7203a0ecb09d3aa5f1503647ff57da291c1"
+version = "0.1.1"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#becbc61ec714c1923986815d22b2779a46a9507f"
 dependencies = [
  "grass_app",
  "grass_derive",
@@ -264,8 +264,8 @@ dependencies = [
 
 [[package]]
 name = "grass_scheduler"
-version = "0.1.0"
-source = "git+https://github.com/SueHeir/grass.git?branch=main#b804e7203a0ecb09d3aa5f1503647ff57da291c1"
+version = "0.1.1"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#becbc61ec714c1923986815d22b2779a46a9507f"
 dependencies = [
  "grass_derive",
 ]

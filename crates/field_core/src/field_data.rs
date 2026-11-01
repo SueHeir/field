@@ -80,6 +80,45 @@ pub trait FieldData: Any + Send + Sync {
         0
     }
 
+    // ── batched (per-link) forms ───────────────────────────────────────────────
+    //
+    // The halo exchange calls these once per store per link instead of once per
+    // cell, so it pays one dynamic dispatch and one registry borrow per store
+    // rather than per cell. The defaults loop over the per-cell methods; since a
+    // default method is compiled per implementing type, those inner calls are
+    // static and inline. Override only for a faster column layout.
+
+    /// [`pack_forward`](Self::pack_forward) for each cell of `cells`, in order.
+    fn pack_forward_cells(&self, cells: &[usize], buf: &mut Vec<f64>) {
+        for &c in cells {
+            self.pack_forward(c, buf);
+        }
+    }
+    /// [`unpack_forward`](Self::unpack_forward) for each cell of `cells`, in
+    /// order; returns the total number of `f64`s consumed.
+    fn unpack_forward_cells(&mut self, cells: &[usize], buf: &[f64]) -> usize {
+        let mut off = 0;
+        for &c in cells {
+            off += self.unpack_forward(c, &buf[off..]);
+        }
+        off
+    }
+    /// [`pack_reverse`](Self::pack_reverse) for each cell of `cells`, in order.
+    fn pack_reverse_cells(&self, cells: &[usize], buf: &mut Vec<f64>) {
+        for &c in cells {
+            self.pack_reverse(c, buf);
+        }
+    }
+    /// [`unpack_reverse_add`](Self::unpack_reverse_add) for each cell of
+    /// `cells`, in order; returns the total number of `f64`s consumed.
+    fn unpack_reverse_add_cells(&mut self, cells: &[usize], buf: &[f64]) -> usize {
+        let mut off = 0;
+        for &c in cells {
+            off += self.unpack_reverse_add(c, &buf[off..]);
+        }
+        off
+    }
+
     // ── zero: reset per-step accumulators ──────────────────────────────────────
 
     /// Reset cell `c`'s `#[zero]` accumulator columns to zero.
@@ -260,6 +299,44 @@ impl FieldRegistry {
             .iter()
             .map(|&i| self.stores[i].1.borrow().reverse_size())
             .sum()
+    }
+
+    /// Pack every forward-participating store's data for a list of cells,
+    /// **store-major**: all of the first store's cells, then the next store's
+    /// (declaration order). Each store is borrowed once. Both ends of an
+    /// exchange use this layout, so it is the halo wire format.
+    pub fn pack_forward_all_cells(&self, cells: &[usize], buf: &mut Vec<f64>) {
+        for &i in &self.forward_stores {
+            self.stores[i].1.borrow().pack_forward_cells(cells, buf);
+        }
+    }
+
+    /// Inverse of [`pack_forward_all_cells`](Self::pack_forward_all_cells);
+    /// returns the number of `f64`s consumed.
+    pub fn unpack_forward_all_cells(&self, cells: &[usize], buf: &[f64]) -> usize {
+        let mut off = 0;
+        for &i in &self.forward_stores {
+            off += self.stores[i].1.borrow_mut().unpack_forward_cells(cells, &buf[off..]);
+        }
+        off
+    }
+
+    /// Store-major reverse pack over a list of cells (see
+    /// [`pack_forward_all_cells`](Self::pack_forward_all_cells)).
+    pub fn pack_reverse_all_cells(&self, cells: &[usize], buf: &mut Vec<f64>) {
+        for &i in &self.reverse_stores {
+            self.stores[i].1.borrow().pack_reverse_cells(cells, buf);
+        }
+    }
+
+    /// Inverse of [`pack_reverse_all_cells`](Self::pack_reverse_all_cells),
+    /// accumulating (`+=`); returns the number of `f64`s consumed.
+    pub fn unpack_reverse_all_cells(&self, cells: &[usize], buf: &[f64]) -> usize {
+        let mut off = 0;
+        for &i in &self.reverse_stores {
+            off += self.stores[i].1.borrow_mut().unpack_reverse_add_cells(cells, &buf[off..]);
+        }
+        off
     }
 
     /// Pack every forward-participating store's data for cell `c` (declaration

@@ -4,9 +4,8 @@ name: docs-coverage
 # `#![warn(missing_docs)]`; this workflow flips that warning to a hard error
 # (`-D warnings`) so no public item can merge without a doc comment.
 #
-# FIELD path-depends on the GRASS framework as a sibling checkout
-# (`../grass/crates/*`), mirroring local dev, so grass is checked out next to
-# field below. The default build links libmpi via grass_mpi, hence OpenMPI.
+# GRASS comes in as git dependencies pinned by Cargo.lock. The default build
+# links libmpi via grass_mpi, hence OpenMPI.
 #
 # field_p4est is intentionally excluded: it wraps the p4est C library through
 # a build script that needs a p4est install (`P4EST_PREFIX`). Provisioning that
@@ -30,13 +29,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: field
-
-      # FIELD's Cargo.toml uses path deps on `../grass/crates/*`.
-      - name: Checkout grass (sibling)
-        uses: actions/checkout@v4
-        with:
-          repository: SueHeir/grass
-          path: grass
 
       - name: Install OpenMPI
         run: |

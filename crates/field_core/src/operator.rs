@@ -188,9 +188,7 @@ impl Vector for CellVector {
     }
 
     fn fill(&mut self, value: f64) {
-        for y in &mut self.values {
-            *y = value;
-        }
+        self.values.fill(value);
     }
 }
 
