@@ -79,7 +79,9 @@ prototype it replaces. Three deliberate departures:
 - **`field_core`** — `FvMesh`/`StructuredMesh`/`AdaptiveMesh` traits, `FieldData` +
   `FieldRegistry`, the `Component` column trait, static `HaloPlan` + generic
   forward/reverse exchange, `UniformMesh` (physics-free port of toy-cfd's
-  `UniformGrid`), `MeshScheduleSet`, and GRASS plugins.
+  `UniformGrid`), `MeshScheduleSet`, and GRASS plugins. `StructuredMapView`
+  exposes a structured mesh's owned cells as a `grass_map::Discretization`, so
+  FIELD meshes plug straight into GRASS mapped ports and `grass_precice`.
 - **`field_derive`** — `#[derive(FieldData)]` generating resize + forward/reverse/
   zero from `#[forward]`/`#[reverse]`/`#[zero]`-tagged `Vec<C: Component>` columns.
   Uniform over `f64`, `[f64; N]`, `bool`, and physics structs (anything `Component`).
