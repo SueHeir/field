@@ -19,10 +19,7 @@ impl Component for Duo {
         buf.push(self.b);
     }
     fn read(buf: &[f64]) -> Self {
-        Duo {
-            a: buf[0],
-            b: buf[1],
-        }
+        Duo { a: buf[0], b: buf[1] }
     }
     fn add_from(&mut self, buf: &[f64]) {
         self.a += buf[0];

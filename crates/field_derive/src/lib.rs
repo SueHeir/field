@@ -56,9 +56,7 @@ fn vec_inner(ty: &Type) -> Option<Type> {
     if seg.ident != "Vec" {
         return None;
     }
-    let syn::PathArguments::AngleBracketed(args) = &seg.arguments else {
-        return None;
-    };
+    let syn::PathArguments::AngleBracketed(args) = &seg.arguments else { return None };
     match args.args.first()? {
         syn::GenericArgument::Type(inner) => Some(inner.clone()),
         _ => None,
@@ -173,13 +171,7 @@ fn build_comm(infos: &[FieldInfo], dir: Dir) -> proc_macro2::TokenStream {
     let is_forward = matches!(dir, Dir::Forward);
     let selected: Vec<&FieldInfo> = infos
         .iter()
-        .filter(|f| {
-            if is_forward {
-                f.is_forward
-            } else {
-                f.is_reverse
-            }
-        })
+        .filter(|f| if is_forward { f.is_forward } else { f.is_reverse })
         .collect();
     if selected.is_empty() {
         return quote! {};
