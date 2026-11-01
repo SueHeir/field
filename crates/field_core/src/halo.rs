@@ -100,8 +100,8 @@ fn exchange(
     comm: &dyn CommBackend,
     per: usize,
     dir: Direction,
-    mut pack: impl FnMut(usize, &mut Vec<f64>),
-    mut unpack: impl FnMut(usize, &[f64]) -> usize,
+    mut pack: impl FnMut(&[usize], &mut Vec<f64>),
+    mut unpack: impl FnMut(&[usize], &[f64]) -> usize,
 ) {
     if per == 0 || plan.links.is_empty() {
         return;
@@ -118,9 +118,8 @@ fn exchange(
     for link in &plan.links {
         let (out, inn) = cells(link, dir);
         let mut buf = Vec::with_capacity(out.len() * per);
-        for &c in out {
-            pack(c, &mut buf);
-        }
+        pack(out, &mut buf);
+        debug_assert_eq!(buf.len(), out.len() * per, "halo pack size mismatch");
         recvs.push(vec![0.0; inn.len() * per]);
         sends.push(buf);
     }
@@ -147,11 +146,8 @@ fn exchange(
 
     for (link, recv) in plan.links.iter().zip(&recvs) {
         let (_, inn) = cells(link, dir);
-        let mut off = 0;
-        for &c in inn {
-            off += unpack(c, &recv[off..]);
-        }
-        debug_assert_eq!(off, recv.len(), "halo size mismatch");
+        let used = unpack(inn, recv);
+        debug_assert_eq!(used, recv.len(), "halo size mismatch");
     }
 }
 
@@ -172,13 +168,14 @@ pub fn halo_exchange_forward(
         comm,
         per,
         Direction::Forward,
-        |c, buf| field.borrow().pack_forward(c, buf),
-        |c, buf| field.borrow_mut().unpack_forward(c, buf),
+        |cells, buf| field.borrow().pack_forward_cells(cells, buf),
+        |cells, buf| field.borrow_mut().unpack_forward_cells(cells, buf),
     );
 }
 
 /// Forward-exchange **every** forward-participating store in the registry in one
-/// pass per neighbor (cell data interleaved in declaration order). This is the
+/// pass per neighbor (store-major: each store's cells in one block, stores in
+/// declaration order). This is the
 /// per-step entry point physics calls; it is the mesh counterpart to SOIL's
 /// `forward_comm`.
 pub fn halo_exchange_forward_all(
@@ -191,8 +188,8 @@ pub fn halo_exchange_forward_all(
         comm,
         registry.forward_size(),
         Direction::Forward,
-        |c, buf| registry.pack_forward_all(c, buf),
-        |c, buf| registry.unpack_forward_all(c, buf),
+        |cells, buf| registry.pack_forward_all_cells(cells, buf),
+        |cells, buf| registry.unpack_forward_all_cells(cells, buf),
     );
 }
 
@@ -210,7 +207,7 @@ pub fn halo_exchange_reverse_all(
         comm,
         registry.reverse_size(),
         Direction::Reverse,
-        |c, buf| registry.pack_reverse_all(c, buf),
-        |c, buf| registry.unpack_reverse_all(c, buf),
+        |cells, buf| registry.pack_reverse_all_cells(cells, buf),
+        |cells, buf| registry.unpack_reverse_all_cells(cells, buf),
     );
 }
