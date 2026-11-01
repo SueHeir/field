@@ -39,7 +39,6 @@
 //! | [`component`] | [`Component`] — f64-serializable column element types | no (method-agnostic) |
 //! | [`halo`] | static halo plan + generic forward/reverse exchange | no (method-agnostic) |
 //! | [`uniform`] | [`UniformMesh`] — the structured Cartesian implementation | yes |
-//! | [`map`] | [`StructuredMapView`] — a structured mesh as a `grass_map::Discretization` | no |
 //! | [`schedule`] | [`MeshScheduleSet`] — explicit-step phase ordering | no |
 //! | [`plugin`] | GRASS plugins that install the mesh and registry | — |
 //!
@@ -52,7 +51,6 @@ pub mod component;
 pub mod field_data;
 pub mod halo;
 pub mod hierarchy;
-pub mod map;
 pub mod mesh;
 pub mod operator;
 pub mod partition;
@@ -70,7 +68,6 @@ pub use halo::{
     halo_exchange_forward, halo_exchange_forward_all, halo_exchange_reverse_all, HaloLink, HaloPlan,
 };
 pub use hierarchy::MeshHierarchy;
-pub use map::StructuredMapView;
 pub use mesh::{
     AdaptiveMesh, BoundarySide, CartesianMesh, CoarseFineFace, Face, FvMesh, PatchId,
     StructuredMesh, Vec3,
