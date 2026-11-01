@@ -65,13 +65,20 @@ pub struct Stencil {
 impl Stencil {
     /// An empty stencil (used by mesh implementations that build incrementally).
     pub const fn new() -> Self {
-        Self { cells: [0; CIC_STENCIL], weights: [0.0; CIC_STENCIL], len: 0 }
+        Self {
+            cells: [0; CIC_STENCIL],
+            weights: [0.0; CIC_STENCIL],
+            len: 0,
+        }
     }
 
     /// Append one `(cell, weight)` term. Panics if more than [`CIC_STENCIL`]
     /// terms are pushed — a CIC stencil never exceeds eight cells.
     pub fn push(&mut self, cell: usize, weight: f64) {
-        assert!(self.len < CIC_STENCIL, "CIC stencil holds at most {CIC_STENCIL} cells");
+        assert!(
+            self.len < CIC_STENCIL,
+            "CIC stencil holds at most {CIC_STENCIL} cells"
+        );
         self.cells[self.len] = cell;
         self.weights[self.len] = weight;
         self.len += 1;
@@ -195,8 +202,16 @@ pub fn scatter<M: TransferMesh + ?Sized>(
     values: &[f64],
     cells: &mut [f64],
 ) -> TransferStats {
-    assert_eq!(positions.len(), values.len(), "positions and values must be parallel");
-    assert_eq!(cells.len(), mesh.n_cells(), "cells length must equal mesh.n_cells()");
+    assert_eq!(
+        positions.len(),
+        values.len(),
+        "positions and values must be parallel"
+    );
+    assert_eq!(
+        cells.len(),
+        mesh.n_cells(),
+        "cells length must equal mesh.n_cells()"
+    );
 
     let mut stats = TransferStats::default();
     for (p, &pos) in positions.iter().enumerate() {
@@ -226,8 +241,16 @@ pub fn scatter_density<M: TransferMesh + ?Sized>(
     values: &[f64],
     cells: &mut [f64],
 ) -> TransferStats {
-    assert_eq!(positions.len(), values.len(), "positions and values must be parallel");
-    assert_eq!(cells.len(), mesh.n_cells(), "cells length must equal mesh.n_cells()");
+    assert_eq!(
+        positions.len(),
+        values.len(),
+        "positions and values must be parallel"
+    );
+    assert_eq!(
+        cells.len(),
+        mesh.n_cells(),
+        "cells length must equal mesh.n_cells()"
+    );
 
     let mut stats = TransferStats::default();
     for (p, &pos) in positions.iter().enumerate() {
@@ -265,8 +288,16 @@ pub fn gather<M: TransferMesh + ?Sized>(
     values: &mut [f64],
     fallback: f64,
 ) -> TransferStats {
-    assert_eq!(positions.len(), values.len(), "positions and values must be parallel");
-    assert_eq!(cells.len(), mesh.n_cells(), "cells length must equal mesh.n_cells()");
+    assert_eq!(
+        positions.len(),
+        values.len(),
+        "positions and values must be parallel"
+    );
+    assert_eq!(
+        cells.len(),
+        mesh.n_cells(),
+        "cells length must equal mesh.n_cells()"
+    );
 
     let mut stats = TransferStats::default();
     for (p, &pos) in positions.iter().enumerate() {
@@ -299,7 +330,10 @@ mod tests {
     impl Lcg {
         fn next_f64(&mut self) -> f64 {
             // Numerical Recipes LCG constants.
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             // Top 53 bits → [0,1).
             (self.0 >> 11) as f64 / (1u64 << 53) as f64
         }
@@ -342,7 +376,10 @@ mod tests {
         for p in &pos {
             let s = mesh.stencil(*p).expect("interior point must locate");
             assert_eq!(s.len(), CIC_STENCIL);
-            assert!((s.weight_sum() - 1.0).abs() < 1e-14, "weights must sum to 1");
+            assert!(
+                (s.weight_sum() - 1.0).abs() < 1e-14,
+                "weights must sum to 1"
+            );
             for (_, w) in s.iter() {
                 assert!((0.0..=1.0).contains(&w), "each CIC weight in [0,1]");
             }
@@ -381,7 +418,11 @@ mod tests {
         scatter(&mesh, &pos, &ones, &mut cells);
 
         let total: f64 = cells.iter().sum();
-        assert!((total - pos.len() as f64).abs() < 1e-9, "total {total} != {}", pos.len());
+        assert!(
+            (total - pos.len() as f64).abs() < 1e-9,
+            "total {total} != {}",
+            pos.len()
+        );
     }
 
     /// Volume-weighted conservation form used by CFD-DEM / PIC density deposits.
@@ -394,11 +435,15 @@ mod tests {
         scatter_density(&mesh, &pos, &val, &mut dens);
 
         // Σ_c density_c · V_c == Σ_p value_p.
-        let integral: f64 =
-            (0..mesh.n_cells()).map(|c| dens[c] * FvMesh::cell_volume(&mesh, c)).sum();
+        let integral: f64 = (0..mesh.n_cells())
+            .map(|c| dens[c] * FvMesh::cell_volume(&mesh, c))
+            .sum();
         let sum_particles: f64 = val.iter().sum();
         let rel_err = (integral - sum_particles).abs() / sum_particles;
-        assert!(rel_err < 1e-12, "volume integral {integral} != particles {sum_particles}");
+        assert!(
+            rel_err < 1e-12,
+            "volume integral {integral} != particles {sum_particles}"
+        );
     }
 
     /// Gather reproduces a spatially-uniform cell field exactly.
@@ -412,7 +457,10 @@ mod tests {
         let stats = gather(&mesh, &pos, &cells, &mut out, f64::NAN);
         assert_eq!(stats.skipped, 0);
         for v in out {
-            assert!((v - 3.75).abs() < 1e-12, "constant field must gather exactly, got {v}");
+            assert!(
+                (v - 3.75).abs() < 1e-12,
+                "constant field must gather exactly, got {v}"
+            );
         }
     }
 
@@ -433,7 +481,10 @@ mod tests {
 
         for (p, v) in pos.iter().zip(out.iter()) {
             let exact = 2.0 * p[0] + 3.0 * p[1] - p[2];
-            assert!((v - exact).abs() < 1e-12, "linear gather off: got {v}, want {exact}");
+            assert!(
+                (v - exact).abs() < 1e-12,
+                "linear gather off: got {v}, want {exact}"
+            );
         }
     }
 
@@ -457,7 +508,10 @@ mod tests {
         gather(&mesh, &pos, &f, &mut gathered, 0.0);
         let rhs: f64 = q.iter().zip(gathered.iter()).map(|(a, b)| a * b).sum();
 
-        assert!((lhs - rhs).abs() <= 1e-10 * lhs.abs().max(1.0), "adjoint broken: {lhs} vs {rhs}");
+        assert!(
+            (lhs - rhs).abs() <= 1e-10 * lhs.abs().max(1.0),
+            "adjoint broken: {lhs} vs {rhs}"
+        );
     }
 
     /// Particles outside the mesh are skipped by scatter (no phantom mass) and
@@ -473,12 +527,18 @@ mod tests {
         assert_eq!(s.applied, 1);
         assert_eq!(s.skipped, 2);
         let total: f64 = cells.iter().sum();
-        assert!((total - 1.0).abs() < 1e-12, "only the in-domain particle deposits");
+        assert!(
+            (total - 1.0).abs() < 1e-12,
+            "only the in-domain particle deposits"
+        );
 
         let mut out = vec![0.0f64; pos.len()];
         let g = gather(&mesh, &pos, &cells, &mut out, f64::NAN);
         assert_eq!(g.skipped, 2);
-        assert!(out[1].is_nan() && out[2].is_nan(), "outside particles get fallback");
+        assert!(
+            out[1].is_nan() && out[2].is_nan(),
+            "outside particles get fallback"
+        );
         assert!(!out[0].is_nan());
     }
 }

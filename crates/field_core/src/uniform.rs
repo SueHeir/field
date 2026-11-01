@@ -175,33 +175,35 @@ impl UniformMesh {
         let y_edges_global = build_global_edges(cfg.ny, lo[1], hi[1], &cfg.y_edges);
         let z_edges_global = build_global_edges(cfg.nz, lo[2], hi[2], &cfg.z_edges);
 
-        let build_local_arrays =
-            |global_edges: &[f64], local_n: usize, offset: usize, ng: usize| -> (Vec<f64>, Vec<f64>) {
-                let interior_edges = &global_edges[offset..offset + local_n + 1];
-                let mut full_edges: Vec<f64> = Vec::with_capacity(local_n + 2 * ng + 1);
-                let d_left = interior_edges[1] - interior_edges[0];
-                for k in 0..ng {
-                    full_edges.push(interior_edges[0] - ((ng - k) as f64) * d_left);
-                }
-                full_edges.extend_from_slice(interior_edges);
-                let d_right = interior_edges[local_n] - interior_edges[local_n - 1];
-                for k in 1..=ng {
-                    full_edges.push(interior_edges[local_n] + (k as f64) * d_right);
-                }
-                let n_total = local_n + 2 * ng;
-                let mut d_arr = Vec::with_capacity(n_total);
-                let mut c_arr = Vec::with_capacity(n_total);
-                for j in 0..n_total {
-                    d_arr.push(full_edges[j + 1] - full_edges[j]);
-                    c_arr.push(0.5 * (full_edges[j] + full_edges[j + 1]));
-                }
-                (d_arr, c_arr)
-            };
+        let build_local_arrays = |global_edges: &[f64],
+                                  local_n: usize,
+                                  offset: usize,
+                                  ng: usize|
+         -> (Vec<f64>, Vec<f64>) {
+            let interior_edges = &global_edges[offset..offset + local_n + 1];
+            let mut full_edges: Vec<f64> = Vec::with_capacity(local_n + 2 * ng + 1);
+            let d_left = interior_edges[1] - interior_edges[0];
+            for k in 0..ng {
+                full_edges.push(interior_edges[0] - ((ng - k) as f64) * d_left);
+            }
+            full_edges.extend_from_slice(interior_edges);
+            let d_right = interior_edges[local_n] - interior_edges[local_n - 1];
+            for k in 1..=ng {
+                full_edges.push(interior_edges[local_n] + (k as f64) * d_right);
+            }
+            let n_total = local_n + 2 * ng;
+            let mut d_arr = Vec::with_capacity(n_total);
+            let mut c_arr = Vec::with_capacity(n_total);
+            for j in 0..n_total {
+                d_arr.push(full_edges[j + 1] - full_edges[j]);
+                c_arr.push(0.5 * (full_edges[j] + full_edges[j + 1]));
+            }
+            (d_arr, c_arr)
+        };
         let (dy_arr, y_arr) = build_local_arrays(&y_edges_global, local_n[1], offset[1], ng);
         let (dz_arr, z_arr) = build_local_arrays(&z_edges_global, local_n[2], offset[2], ng);
 
-        let rank_of =
-            |px: i32, py: i32, pz: i32| -> i32 { px * (np[1] * np[2]) + py * np[2] + pz };
+        let rank_of = |px: i32, py: i32, pz: i32| -> i32 { px * (np[1] * np[2]) + py * np[2] + pz };
         let mut neighbor = [[-1i32; 2]; 3];
         for dim in 0..3 {
             for (side, step) in [(0usize, -1i32), (1, 1)] {
@@ -328,11 +330,19 @@ impl UniformMesh {
                 send_cells.extend(slab(n[dim]));
                 let mut recv_cells = slab(ng + n[dim]);
                 recv_cells.extend(slab(0));
-                links.push(HaloLink { rank: lo, send_cells, recv_cells });
+                links.push(HaloLink {
+                    rank: lo,
+                    send_cells,
+                    recv_cells,
+                });
                 continue;
             }
             if lo >= 0 {
-                links.push(HaloLink { rank: lo, send_cells: slab(ng), recv_cells: slab(0) });
+                links.push(HaloLink {
+                    rank: lo,
+                    send_cells: slab(ng),
+                    recv_cells: slab(0),
+                });
             }
             if hi >= 0 {
                 links.push(HaloLink {
@@ -601,8 +611,8 @@ impl StructuredMesh for UniformMesh {
     fn locate(&self, point: Vec3) -> Option<([usize; 3], [f64; 3])> {
         // Uniform x: raw cell ir covers interior i = ir-ng, center at
         // origin + (offset + i + 0.5)*dx.
-        let pf = (point[0] - self.origin[0]) / self.dx - 0.5 - self.offset[0] as f64
-            + self.ng as f64;
+        let pf =
+            (point[0] - self.origin[0]) / self.dx - 0.5 - self.offset[0] as f64 + self.ng as f64;
         let lo_i = pf.floor();
         if lo_i < 0.0 || lo_i >= (self.ni_total as f64) - 1.0 {
             return None;
@@ -644,7 +654,11 @@ fn bracket_centers(p: f64, arr: &[f64]) -> Option<(usize, f64)> {
         }
     }
     let denom = arr[lo + 1] - arr[lo];
-    let t = if denom.abs() < 1e-30 { 0.0 } else { ((p - arr[lo]) / denom).clamp(0.0, 1.0) };
+    let t = if denom.abs() < 1e-30 {
+        0.0
+    } else {
+        ((p - arr[lo]) / denom).clamp(0.0, 1.0)
+    };
     Some((lo, t))
 }
 
@@ -685,10 +699,7 @@ impl std::error::Error for DecompositionError {}
 ///
 /// Returns [`DecompositionError::TooManyRanks`] if `size` cannot be placed
 /// without giving some rank zero cells.
-pub fn factor_decomposition(
-    size: i32,
-    global: [usize; 3],
-) -> Result<[i32; 3], DecompositionError> {
+pub fn factor_decomposition(size: i32, global: [usize; 3]) -> Result<[i32; 3], DecompositionError> {
     if size < 1 {
         return Err(DecompositionError::InvalidRankCount(size));
     }
@@ -788,15 +799,17 @@ mod tests {
         let m = UniformMesh::from_config(&cfg());
         assert!(m.is_local_cell(m.idx(0, 0, 0)));
         assert!(!m.is_local_cell(m.idx_raw(0, 0, 0))); // a corner ghost
-        let local = (0..m.n_cells_total()).filter(|&c| m.is_local_cell(c)).count();
+        let local = (0..m.n_cells_total())
+            .filter(|&c| m.is_local_cell(c))
+            .count();
         assert_eq!(local, m.n_local_cells());
     }
 
     #[test]
     fn axis_neighbors_step_one_cell_each_direction() {
         let m = UniformMesh::from_config(&cfg()); // 10³, ng=2
-        // Interior cell (3,4,5): each axis neighbour is exactly the adjacent
-        // interior cell, matching the structured index step.
+                                                  // Interior cell (3,4,5): each axis neighbour is exactly the adjacent
+                                                  // interior cell, matching the structured index step.
         let c = m.idx(3, 4, 5);
         assert_eq!(m.axis_neighbors(c, 0, true), &[m.idx(4, 4, 5)]);
         assert_eq!(m.axis_neighbors(c, 0, false), &[m.idx(2, 4, 5)]);
@@ -809,13 +822,16 @@ mod tests {
     #[test]
     fn axis_neighbors_boundary_cell_returns_ghost_and_ghosts_return_empty() {
         let m = UniformMesh::from_config(&cfg()); // ng = 2
-        // The low-x boundary interior cell's outward (-x) neighbour is the raw
-        // ghost just outside the domain (index one step below in raw x), which a
-        // BC fills — a single valid index, never empty.
+                                                  // The low-x boundary interior cell's outward (-x) neighbour is the raw
+                                                  // ghost just outside the domain (index one step below in raw x), which a
+                                                  // BC fills — a single valid index, never empty.
         let edge = m.idx(0, 4, 5);
         let lo = m.axis_neighbors(edge, 0, false);
         assert_eq!(lo.len(), 1);
-        assert!(!m.is_local_cell(lo[0]), "outward neighbour of a boundary cell is a ghost");
+        assert!(
+            !m.is_local_cell(lo[0]),
+            "outward neighbour of a boundary cell is a ghost"
+        );
         assert_eq!(lo[0], m.idx_raw(1, 4 + 2, 5 + 2));
         // Non-local (ghost) cells carry no reconstruction stencil.
         assert!(m.axis_neighbors(m.idx_raw(0, 0, 0), 0, true).is_empty());
@@ -824,7 +840,7 @@ mod tests {
     #[test]
     fn locate_brackets_a_point() {
         let m = UniformMesh::from_config(&cfg()); // 10³, ng=2, [0,1]³, dx=0.1
-        // 0.1 sits halfway between raw cell 2 (center 0.05) and 3 (center 0.15).
+                                                  // 0.1 sits halfway between raw cell 2 (center 0.05) and 3 (center 0.15).
         let (lo, t) = m.locate([0.1, 0.1, 0.1]).unwrap();
         assert_eq!(lo, [2, 2, 2]);
         assert!((0..3).all(|a| (t[a] - 0.5).abs() < 1e-12));
@@ -854,11 +870,18 @@ mod tests {
         // z is a single cell → all splitting goes to x and y.
         assert_eq!(factor_decomposition(4, [16, 16, 1]).unwrap(), [2, 2, 1]);
         assert_eq!(factor_decomposition(7, [14, 1, 1]).unwrap(), [7, 1, 1]);
-        for &(size, g) in &[(6i32, [12usize, 12, 12]), (12, [24, 24, 24]), (5, [10, 5, 5])] {
+        for &(size, g) in &[
+            (6i32, [12usize, 12, 12]),
+            (12, [24, 24, 24]),
+            (5, [10, 5, 5]),
+        ] {
             let d = factor_decomposition(size, g).unwrap();
             assert_eq!(d[0] * d[1] * d[2], size, "product must equal rank count");
             for axis in 0..3 {
-                assert!(d[axis] as usize <= g[axis], "never finer than the cell count");
+                assert!(
+                    d[axis] as usize <= g[axis],
+                    "never finer than the cell count"
+                );
             }
         }
     }
@@ -866,7 +889,13 @@ mod tests {
     #[test]
     fn decomposition_rejects_over_subscribed_ranks_without_panicking() {
         let err = factor_decomposition(9, [2, 2, 2]).unwrap_err();
-        assert_eq!(err, DecompositionError::TooManyRanks { size: 9, global: [2, 2, 2] });
+        assert_eq!(
+            err,
+            DecompositionError::TooManyRanks {
+                size: 9,
+                global: [2, 2, 2]
+            }
+        );
         assert_eq!(
             err.to_string(),
             "cannot decompose 9 ranks over grid [2, 2, 2]: too many ranks for the cell count"

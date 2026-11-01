@@ -3,18 +3,18 @@
 //!
 //! The star of these tests — a discrete Laplacian — is deliberately defined **here
 //! in the test**, not in `field_core`'s `src`. That placement is the whole point of
-//! the agnosticism contract: the substrate ships the seams ([`LinearOperator`],
-//! [`Vector`], [`CellVector`], [`MeshHierarchy`]) and knows nothing about the
+//! the agnosticism contract: the substrate ships the seams ([`CellVector`],
+//! [`MeshHierarchy`], the halo plan) and knows nothing about the
 //! Laplacian, Poisson, boundary conditions, or any equation. A concrete operator is
 //! a *consumer* of the substrate, so it lives with the consumer.
 //!
 //! Acceptance check: `laplacian_apply_matches_hand_computed_case` verifies that a
 //! matrix-free operator's `apply` reproduces a small case worked out by hand. No
-//! solver is bundled here; FIELD exposes the operator/vector seam, and solver
-//! tiers decide what iteration, preconditioner, or direct method to place on top.
+//! solver is bundled here; FIELD exposes the vector/halo seam, and solver
+//! tiers (the shared CG lives in `grass_linalg`) decide what iteration, preconditioner, or direct method to place on top.
 
 use field_core::prelude::*;
-use field_core::{CellVector, LinearOperator, Vector};
+use field_core::CellVector;
 
 /// A matrix-free **negative** Laplacian `A = -∇²` (the SPD operator a Poisson /
 /// implicit-diffusion solve actually uses), evaluated on a [`UniformMesh`] with a
@@ -32,9 +32,8 @@ struct NegativeLaplacian<'m> {
     mesh: &'m UniformMesh,
 }
 
-impl<'m> LinearOperator for NegativeLaplacian<'m> {
-    type Vector = CellVector;
-
+impl<'m> NegativeLaplacian<'m> {
+    /// `y = A x` on owned cells.
     fn apply(&self, x: &CellVector, y: &mut CellVector) {
         let m = self.mesh;
         let ng = m.n_ghost();

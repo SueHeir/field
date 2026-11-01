@@ -154,11 +154,7 @@ fn exchange(
 /// Forward-exchange a single [`FieldData`] store: owner cells → ghost cells,
 /// overwrite semantics. No-op when the store has no forward fields or the plan
 /// is empty.
-pub fn halo_exchange_forward(
-    plan: &HaloPlan,
-    field: &mut dyn FieldData,
-    comm: &dyn CommBackend,
-) {
+pub fn halo_exchange_forward(plan: &HaloPlan, field: &mut dyn FieldData, comm: &dyn CommBackend) {
     let per = field.forward_size();
     // `pack` only reads and `unpack` only runs after every pack, but both
     // closures need the store; route them through a RefCell.

@@ -1,21 +1,18 @@
-//! Worked example for FIELD's matrix-free [`LinearOperator`] seam.
+//! Worked example of a matrix-free operator on FIELD's [`CellVector`].
 //!
 //! The concrete operator lives in this example, not in `field_core`, because a
-//! Laplacian is an equation-level choice. The substrate provides the mesh-shaped
-//! vector, halo-compatible storage, and `apply` interface; a consumer supplies the
-//! stencil and any solver it wants above this seam.
+//! Laplacian is an equation-level choice. The substrate provides the mesh-shaped,
+//! halo-compatible vector; a consumer supplies the stencil and hands it to a
+//! solver (the shared, MPI-aware CG is `grass_linalg`).
 
-use field_core::{
-    CellVector, LinearOperator, StructuredMesh, UniformMesh, UniformMeshConfig, Vector,
-};
+use field_core::{CellVector, StructuredMesh, UniformMesh, UniformMeshConfig};
 
 struct NegativeLaplacian<'m> {
     mesh: &'m UniformMesh,
 }
 
-impl LinearOperator for NegativeLaplacian<'_> {
-    type Vector = CellVector;
-
+impl NegativeLaplacian<'_> {
+    /// `y = A x` on owned cells.
     fn apply(&self, x: &CellVector, y: &mut CellVector) {
         let mesh = self.mesh;
         let ng = mesh.n_ghost();

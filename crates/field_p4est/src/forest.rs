@@ -9,11 +9,11 @@
 //! that arrives in Phase 2 (FlowField generic over the grid backend). For
 //! now this is the same machinery `crates/amr_demo` uses.
 
-use std::ffi::{CString, NulError, c_int, c_void};
+use std::ffi::{c_int, c_void, CString, NulError};
 use std::os::raw::c_char;
 use std::path::Path;
-use std::sync::Once;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Once;
 
 #[repr(C)]
 struct AmrForest {
@@ -53,7 +53,14 @@ pub enum Face {
 
 impl Face {
     pub fn all() -> [Face; 6] {
-        [Face::XLo, Face::XHi, Face::YLo, Face::YHi, Face::ZLo, Face::ZHi]
+        [
+            Face::XLo,
+            Face::XHi,
+            Face::YLo,
+            Face::YHi,
+            Face::ZLo,
+            Face::ZHi,
+        ]
     }
 }
 
@@ -97,17 +104,17 @@ impl FinerSet {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct AmrFaceNeighbors {
-    kind:  i32,
+    kind: i32,
     count: i32,
-    idx:   [i64; 4],
+    idx: [i64; 4],
     ghost_mask: i32,
 }
 
 const AMR_NB_BOUNDARY: i32 = 0;
-const AMR_NB_SAME:     i32 = 1;
-const AMR_NB_COARSER:  i32 = 2;
-const AMR_NB_FINER:    i32 = 3;
-const AMR_NB_GHOST:    i32 = 4;
+const AMR_NB_SAME: i32 = 1;
+const AMR_NB_COARSER: i32 = 2;
+const AMR_NB_FINER: i32 = 3;
+const AMR_NB_GHOST: i32 = 4;
 
 extern "C" {
     fn amr_init() -> c_int;
@@ -116,24 +123,17 @@ extern "C" {
         trees_x: c_int,
         trees_y: c_int,
         trees_z: c_int,
-        xmin: f64, xmax: f64,
-        ymin: f64, ymax: f64,
-        zmin: f64, zmax: f64,
+        xmin: f64,
+        xmax: f64,
+        ymin: f64,
+        ymax: f64,
+        zmin: f64,
+        zmax: f64,
         min_level: c_int,
     ) -> *mut AmrForest;
     fn amr_forest_destroy(f: *mut AmrForest);
-    fn amr_forest_refine(
-        f: *mut AmrForest,
-        max_level: c_int,
-        cb: AmrRefineFn,
-        ctx: *mut c_void,
-    );
-    fn amr_forest_coarsen(
-        f: *mut AmrForest,
-        min_level: c_int,
-        cb: AmrCoarsenFn,
-        ctx: *mut c_void,
-    );
+    fn amr_forest_refine(f: *mut AmrForest, max_level: c_int, cb: AmrRefineFn, ctx: *mut c_void);
+    fn amr_forest_coarsen(f: *mut AmrForest, min_level: c_int, cb: AmrCoarsenFn, ctx: *mut c_void);
     fn amr_forest_write_vtk(f: *mut AmrForest, filename: *const c_char);
     fn amr_forest_leaf_count(f: *const AmrForest) -> i64;
     fn amr_forest_n_local_leaves(f: *const AmrForest) -> i64;
@@ -304,7 +304,11 @@ impl ForestGrid {
         if handle.is_null() {
             return Err(Error::InitFailed);
         }
-        let mut grid = Self { handle, layout, leaf_cache: Vec::new() };
+        let mut grid = Self {
+            handle,
+            layout,
+            leaf_cache: Vec::new(),
+        };
         grid.rebuild_leaf_cache();
         Ok(grid)
     }
@@ -331,7 +335,11 @@ impl ForestGrid {
             F: FnMut(f64, f64, f64, f64) -> bool,
         {
             let f = &mut *(ctx as *mut F);
-            if f(cx, cy, cz, h) { 1 } else { 0 }
+            if f(cx, cy, cz, h) {
+                1
+            } else {
+                0
+            }
         }
 
         unsafe {
@@ -369,7 +377,11 @@ impl ForestGrid {
             F: FnMut(f64, f64, f64, f64) -> bool,
         {
             let f = &mut *(ctx as *mut F);
-            if f(cx, cy, cz, h) { 1 } else { 0 }
+            if f(cx, cy, cz, h) {
+                1
+            } else {
+                0
+            }
         }
 
         unsafe {
@@ -399,8 +411,7 @@ impl ForestGrid {
         max_level: i32,
         coarsen_criterion: C,
         refine_criterion: R,
-    )
-    where
+    ) where
         C: FnMut(f64, f64, f64, f64) -> bool,
         R: FnMut(f64, f64, f64, f64) -> bool,
     {
@@ -537,7 +548,11 @@ impl ForestGrid {
     /// `&ForestGrid` access is then limited to the genuinely read-only queries.
     pub fn find_leaf_at(&mut self, x: f64, y: f64, z: f64) -> Option<usize> {
         let r = unsafe { amr_forest_search_point(self.handle, x, y, z) };
-        if r < 0 { None } else { Some(r as usize) }
+        if r < 0 {
+            None
+        } else {
+            Some(r as usize)
+        }
     }
 
     /// Owner rank of a physical point according to p8est's current global
@@ -569,9 +584,7 @@ impl ForestGrid {
 
     /// Number of root trees in the brick: `trees_x * trees_y * trees_z`.
     pub fn n_trees(&self) -> i64 {
-        (self.layout.trees_x as i64)
-            * (self.layout.trees_y as i64)
-            * (self.layout.trees_z as i64)
+        (self.layout.trees_x as i64) * (self.layout.trees_y as i64) * (self.layout.trees_z as i64)
     }
 
     /// Equivalent uniform-grid cell count if the entire forest were
@@ -611,10 +624,15 @@ mod tests {
     #[test]
     fn forest_layout_tree_extent() {
         let layout = ForestLayout {
-            trees_x: 5, trees_y: 8, trees_z: 1,
-            xmin: 0.0, xmax: 2.5e-3,
-            ymin: 0.0, ymax: 4.0e-3,
-            zmin: 0.0, zmax: 0.5e-3,
+            trees_x: 5,
+            trees_y: 8,
+            trees_z: 1,
+            xmin: 0.0,
+            xmax: 2.5e-3,
+            ymin: 0.0,
+            ymax: 4.0e-3,
+            zmin: 0.0,
+            zmax: 0.5e-3,
             min_level: 3,
         };
         let e = layout.tree_extent();

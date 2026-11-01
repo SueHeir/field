@@ -154,7 +154,10 @@ impl fmt::Display for FieldRegistryError {
                 write!(f, "FieldRegistry: field type {id:?} already registered")
             }
             FieldRegistryError::RegistryMissing => {
-                write!(f, "FieldRegistry not found — FieldRegistryPlugin must be added first")
+                write!(
+                    f,
+                    "FieldRegistry not found — FieldRegistryPlugin must be added first"
+                )
             }
         }
     }
@@ -239,7 +242,9 @@ impl FieldRegistry {
             // `TypeId::of::<F>()`, so the boxed value IS an `F` and the downcast
             // cannot fail. A failure would be a FIELD bug, not user input — so it
             // stays an `expect`, not a typed error.
-            b.as_any().downcast_ref::<F>().expect("FieldRegistry downcast — this is a bug in FIELD")
+            b.as_any()
+                .downcast_ref::<F>()
+                .expect("FieldRegistry downcast — this is a bug in FIELD")
         }))
     }
 
@@ -249,7 +254,9 @@ impl FieldRegistry {
         Some(RefMut::map(cell.borrow_mut(), |b| {
             // Provably internal: same invariant as `get` — `cell_of::<F>` matched
             // this entry by `TypeId::of::<F>()`, so the downcast cannot fail.
-            b.as_any_mut().downcast_mut::<F>().expect("FieldRegistry downcast — this is a bug in FIELD")
+            b.as_any_mut()
+                .downcast_mut::<F>()
+                .expect("FieldRegistry downcast — this is a bug in FIELD")
         }))
     }
 
@@ -316,7 +323,10 @@ impl FieldRegistry {
     pub fn unpack_forward_all_cells(&self, cells: &[usize], buf: &[f64]) -> usize {
         let mut off = 0;
         for &i in &self.forward_stores {
-            off += self.stores[i].1.borrow_mut().unpack_forward_cells(cells, &buf[off..]);
+            off += self.stores[i]
+                .1
+                .borrow_mut()
+                .unpack_forward_cells(cells, &buf[off..]);
         }
         off
     }
@@ -334,7 +344,10 @@ impl FieldRegistry {
     pub fn unpack_reverse_all_cells(&self, cells: &[usize], buf: &[f64]) -> usize {
         let mut off = 0;
         for &i in &self.reverse_stores {
-            off += self.stores[i].1.borrow_mut().unpack_reverse_add_cells(cells, &buf[off..]);
+            off += self.stores[i]
+                .1
+                .borrow_mut()
+                .unpack_reverse_add_cells(cells, &buf[off..]);
         }
         off
     }
@@ -369,7 +382,10 @@ impl FieldRegistry {
     pub fn unpack_reverse_all(&self, c: usize, buf: &[f64]) -> usize {
         let mut off = 0;
         for &i in &self.reverse_stores {
-            off += self.stores[i].1.borrow_mut().unpack_reverse_add(c, &buf[off..]);
+            off += self.stores[i]
+                .1
+                .borrow_mut()
+                .unpack_reverse_add(c, &buf[off..]);
         }
         off
     }
@@ -478,7 +494,10 @@ mod tests {
     #[test]
     fn register_and_borrow() {
         let mut reg = FieldRegistry::new();
-        reg.register(Scalar { value: vec![1.0, 2.0, 3.0], accum: vec![9.0; 3] });
+        reg.register(Scalar {
+            value: vec![1.0, 2.0, 3.0],
+            accum: vec![9.0; 3],
+        });
         assert_eq!(reg.forward_size(), 1);
         reg.get_mut::<Scalar>().unwrap().value[1] = 99.0;
         assert_eq!(reg.get::<Scalar>().unwrap().value[1], 99.0);
@@ -489,7 +508,10 @@ mod tests {
     #[test]
     fn forward_pack_unpack_round_trip() {
         let mut reg = FieldRegistry::new();
-        reg.register(Scalar { value: vec![10.0, 20.0, 30.0], accum: vec![0.0; 3] });
+        reg.register(Scalar {
+            value: vec![10.0, 20.0, 30.0],
+            accum: vec![0.0; 3],
+        });
         let mut buf = Vec::new();
         reg.pack_forward_all(1, &mut buf);
         assert_eq!(buf, vec![20.0]);
@@ -501,12 +523,22 @@ mod tests {
     #[test]
     fn try_register_rejects_duplicate_without_panicking() {
         let mut reg = FieldRegistry::new();
-        assert!(reg.try_register(Scalar { value: vec![1.0], accum: vec![0.0] }).is_ok());
+        assert!(reg
+            .try_register(Scalar {
+                value: vec![1.0],
+                accum: vec![0.0]
+            })
+            .is_ok());
         // A second registration of the same type errors instead of aborting.
         let err = reg
-            .try_register(Scalar { value: vec![2.0], accum: vec![0.0] })
+            .try_register(Scalar {
+                value: vec![2.0],
+                accum: vec![0.0],
+            })
             .unwrap_err();
-        assert!(matches!(err, FieldRegistryError::AlreadyRegistered(id) if id == TypeId::of::<Scalar>()));
+        assert!(
+            matches!(err, FieldRegistryError::AlreadyRegistered(id) if id == TypeId::of::<Scalar>())
+        );
         // The original store is untouched by the rejected second call.
         assert_eq!(reg.get::<Scalar>().unwrap().value, vec![1.0]);
     }
@@ -523,7 +555,10 @@ mod tests {
     #[test]
     fn zero_resets_only_accumulators() {
         let mut reg = FieldRegistry::new();
-        reg.register(Scalar { value: vec![1.0; 3], accum: vec![5.0; 3] });
+        reg.register(Scalar {
+            value: vec![1.0; 3],
+            accum: vec![5.0; 3],
+        });
         reg.zero_all(3);
         let s = reg.get::<Scalar>().unwrap();
         assert_eq!(s.accum, vec![0.0, 0.0, 0.0]);

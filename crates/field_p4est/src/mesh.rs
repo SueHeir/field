@@ -40,7 +40,10 @@ struct DirNeighbors {
 
 impl DirNeighbors {
     fn one(i: usize) -> Self {
-        DirNeighbors { idx: [i, 0, 0, 0], n: 1 }
+        DirNeighbors {
+            idx: [i, 0, 0, 0],
+            n: 1,
+        }
     }
     fn four(v: [usize; 4]) -> Self {
         DirNeighbors { idx: v, n: 4 }
@@ -80,11 +83,23 @@ fn make_face(
     area_normal[axis] = sign * area;
     let mut centroid = center;
     centroid[axis] += sign * 0.5 * size[axis];
-    MeshFace { owner, other, area_normal, centroid, patch }
+    MeshFace {
+        owner,
+        other,
+        area_normal,
+        centroid,
+        patch,
+    }
 }
 
-type Topology =
-    (Vec<Cell>, usize, Vec<MeshFace>, Vec<CoarseFineFace>, Vec<[DirNeighbors; 6]>, HaloPlan);
+type Topology = (
+    Vec<Cell>,
+    usize,
+    Vec<MeshFace>,
+    Vec<CoarseFineFace>,
+    Vec<[DirNeighbors; 6]>,
+    HaloPlan,
+);
 
 /// Build the flat cell list + face list (+ per-cell axis neighbours + halo plan)
 /// from a forest's current leaves and ghost layer.
@@ -93,7 +108,12 @@ fn build_topology(grid: &ForestGrid) -> Topology {
     let mut cells: Vec<Cell> = grid
         .leaves()
         .iter()
-        .map(|l| Cell { center: l.center, size: l.size, level: l.level.max(0) as u8, is_ghost: false })
+        .map(|l| Cell {
+            center: l.center,
+            size: l.size,
+            level: l.level.max(0) as u8,
+            is_ghost: false,
+        })
         .collect();
 
     // INVARIANT: cross-rank ghost cells occupy a CONTIGUOUS block at indices
@@ -114,7 +134,11 @@ fn build_topology(grid: &ForestGrid) -> Topology {
             is_ghost: true,
         });
     }
-    debug_assert_eq!(cells.len(), ghost_base + n_ghost, "ghost block must be contiguous");
+    debug_assert_eq!(
+        cells.len(),
+        ghost_base + n_ghost,
+        "ghost block must be contiguous"
+    );
 
     let mut faces = Vec::new();
     let mut coarse_fine = Vec::new();
@@ -131,14 +155,35 @@ fn build_topology(grid: &ForestGrid) -> Topology {
                     let mut center = owner.center;
                     center[axis] += sign * owner.size[axis];
                     let gi = cells.len();
-                    cells.push(Cell { center, size: owner.size, level: owner.level, is_ghost: true });
-                    faces.push(make_face(li, gi, axis, sign, owner.size, owner.center, Some(face as u32)));
+                    cells.push(Cell {
+                        center,
+                        size: owner.size,
+                        level: owner.level,
+                        is_ghost: true,
+                    });
+                    faces.push(make_face(
+                        li,
+                        gi,
+                        axis,
+                        sign,
+                        owner.size,
+                        owner.center,
+                        Some(face as u32),
+                    ));
                     axis_nbr[li][dir] = DirNeighbors::one(gi);
                 }
                 NeighborSet::Same(nj) => {
                     if li < nj {
                         let owner = cells[li];
-                        faces.push(make_face(li, nj, axis, sign, owner.size, owner.center, None));
+                        faces.push(make_face(
+                            li,
+                            nj,
+                            axis,
+                            sign,
+                            owner.size,
+                            owner.center,
+                            None,
+                        ));
                     }
                     axis_nbr[li][dir] = DirNeighbors::one(nj);
                 }
@@ -171,7 +216,15 @@ fn build_topology(grid: &ForestGrid) -> Topology {
                             if g < n_ghost {
                                 let gmesh = ghost_base + g;
                                 let fine = cells[gmesh];
-                                faces.push(make_face(li, gmesh, axis, sign, fine.size, fine.center, None));
+                                faces.push(make_face(
+                                    li,
+                                    gmesh,
+                                    axis,
+                                    sign,
+                                    fine.size,
+                                    fine.center,
+                                    None,
+                                ));
                                 *slot = gmesh;
                             }
                         } else {
@@ -187,7 +240,15 @@ fn build_topology(grid: &ForestGrid) -> Topology {
                     // its own side.
                     let owner = cells[li];
                     let nj = ghost_base + g;
-                    faces.push(make_face(li, nj, axis, sign, owner.size, owner.center, None));
+                    faces.push(make_face(
+                        li,
+                        nj,
+                        axis,
+                        sign,
+                        owner.size,
+                        owner.center,
+                        None,
+                    ));
                     axis_nbr[li][dir] = DirNeighbors::one(nj);
                 }
                 NeighborSet::Ghost(_) => {} // out-of-range ghost index: skip (shouldn't occur)
@@ -225,8 +286,9 @@ fn build_halo_plan(grid: &ForestGrid, ghost_base: usize) -> HaloPlan {
         if r == myrank {
             continue;
         }
-        let recv: Vec<usize> =
-            (recv_off[r] as usize..recv_off[r + 1] as usize).map(|gi| ghost_base + gi).collect();
+        let recv: Vec<usize> = (recv_off[r] as usize..recv_off[r + 1] as usize)
+            .map(|gi| ghost_base + gi)
+            .collect();
         let send: Vec<usize> = send_locals[send_off[r] as usize..send_off[r + 1] as usize]
             .iter()
             .map(|&l| l as usize)
@@ -234,7 +296,11 @@ fn build_halo_plan(grid: &ForestGrid, ghost_base: usize) -> HaloPlan {
         if recv.is_empty() && send.is_empty() {
             continue;
         }
-        links.push(HaloLink { rank: r as i32, send_cells: send, recv_cells: recv });
+        links.push(HaloLink {
+            rank: r as i32,
+            send_cells: send,
+            recv_cells: recv,
+        });
     }
     HaloPlan { links }
 }
@@ -244,7 +310,15 @@ impl ForestMesh {
     /// `mesh` available — `ForestGrid::refine`/`coarsen` must have run once.
     pub fn new(grid: ForestGrid) -> Self {
         let (cells, n_local, faces, coarse_fine, axis_nbr, halo) = build_topology(&grid);
-        ForestMesh { grid, cells, n_local, faces, coarse_fine, axis_nbr, halo }
+        ForestMesh {
+            grid,
+            cells,
+            n_local,
+            faces,
+            coarse_fine,
+            axis_nbr,
+            halo,
+        }
     }
 
     /// Refine the underlying forest (then 2:1-balance) and rebuild the FV
@@ -285,7 +359,10 @@ impl ForestMesh {
     /// `(center, size)` of each interior leaf, in cell-index order — the geometry
     /// needed to transfer a per-cell field onto a regridded mesh (see [`locate_in`]).
     pub fn interior_geometry(&self) -> Vec<(Vec3, Vec3)> {
-        self.cells[..self.n_local].iter().map(|c| (c.center, c.size)).collect()
+        self.cells[..self.n_local]
+            .iter()
+            .map(|c| (c.center, c.size))
+            .collect()
     }
 
     /// Number of interior faces whose `other` cell is a cross-rank ghost at a
@@ -308,8 +385,15 @@ impl ForestMesh {
 
     /// (coarse-leaf count, fine-leaf count) over interior leaves, for diagnostics.
     pub fn level_counts(&self) -> (usize, usize) {
-        let min = self.cells[..self.n_local].iter().map(|c| c.level).min().unwrap_or(0);
-        let coarse = self.cells[..self.n_local].iter().filter(|c| c.level == min).count();
+        let min = self.cells[..self.n_local]
+            .iter()
+            .map(|c| c.level)
+            .min()
+            .unwrap_or(0);
+        let coarse = self.cells[..self.n_local]
+            .iter()
+            .filter(|c| c.level == min)
+            .count();
         (coarse, self.n_local - coarse)
     }
 }
@@ -369,7 +453,11 @@ pub fn transfer_recursive<T: Copy>(
     for &sz in &[-1.0f64, 1.0] {
         for &sy in &[-1.0f64, 1.0] {
             for &sx in &[-1.0f64, 1.0] {
-                let sub = [center[0] + sx * qtr[0], center[1] + sy * qtr[1], center[2] + sz * qtr[2]];
+                let sub = [
+                    center[0] + sx * qtr[0],
+                    center[1] + sy * qtr[1],
+                    center[2] + sz * qtr[2],
+                ];
                 vals[k] = transfer_recursive(old_geom, old_val, default, sub, half, avg);
                 k += 1;
             }

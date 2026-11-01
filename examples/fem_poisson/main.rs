@@ -318,7 +318,11 @@ fn validate(mut prob: ResMut<PoissonProblem>) {
                 .collect();
             for tri in [[0usize, 1, 2], [0, 2, 3]] {
                 let p = [xy[tri[0]], xy[tri[1]], xy[tri[2]]];
-                let uh = [prob.u[gid[tri[0]]], prob.u[gid[tri[1]]], prob.u[gid[tri[2]]]];
+                let uh = [
+                    prob.u[gid[tri[0]]],
+                    prob.u[gid[tri[1]]],
+                    prob.u[gid[tri[2]]],
+                ];
                 let area = 0.5
                     * ((p[1][0] - p[0][0]) * (p[2][1] - p[0][1])
                         - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]));

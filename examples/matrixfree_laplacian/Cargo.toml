@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Worked matrix-free LinearOperator example on FIELD's mesh/vector seam."
+description = "Worked matrix-free operator example on FIELD's CellVector."
 publish = false
 
 [[bin]]
