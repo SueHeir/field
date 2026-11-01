@@ -212,32 +212,33 @@ impl<M: StructuredMesh + ?Sized> TransferMesh for M {
     }
 
     fn stencil_grad(&self, point: [f64; 3]) -> Option<GradStencil> {
-        // d/dx of the per-axis hat is ±1/h along that axis, where h is the
-        // center-to-center distance across the bracket (read from centroids so
-        // stretched y/z spacing is handled). Each corner's gradient component is
-        // that derivative times the other two axes' hats.
-        let stencil = TransferMesh::stencil(self, point)?;
+        // One `locate`, then weights and gradients together. d/dx of the
+        // per-axis hat is ±1/h along that axis, where h is the center-to-center
+        // distance across the bracket (read from centroids so stretched y/z
+        // spacing is handled). Each corner's gradient component is that
+        // derivative times the other two axes' hats.
         let (lo, t) = self.locate(point)?;
         let c0 = self.cell_centroid(self.idx_raw(lo[0], lo[1], lo[2]));
-        let h = [
-            self.cell_centroid(self.idx_raw(lo[0] + 1, lo[1], lo[2]))[0] - c0[0],
-            self.cell_centroid(self.idx_raw(lo[0], lo[1] + 1, lo[2]))[1] - c0[1],
-            self.cell_centroid(self.idx_raw(lo[0], lo[1], lo[2] + 1))[2] - c0[2],
+        let inv_h = [
+            1.0 / (self.cell_centroid(self.idx_raw(lo[0] + 1, lo[1], lo[2]))[0] - c0[0]),
+            1.0 / (self.cell_centroid(self.idx_raw(lo[0], lo[1] + 1, lo[2]))[1] - c0[1]),
+            1.0 / (self.cell_centroid(self.idx_raw(lo[0], lo[1], lo[2] + 1))[2] - c0[2]),
         ];
-        let hat = |a: usize, d: usize| if d == 1 { t[a] } else { 1.0 - t[a] };
-        let dhat = |a: usize, d: usize| if d == 1 { 1.0 / h[a] } else { -1.0 / h[a] };
+        let hat = [[1.0 - t[0], t[0]], [1.0 - t[1], t[1]], [1.0 - t[2], t[2]]];
+        let dhat = [[-inv_h[0], inv_h[0]], [-inv_h[1], inv_h[1]], [-inv_h[2], inv_h[2]]];
+        let mut stencil = Stencil::new();
         let mut grads = [[0.0; 3]; CIC_STENCIL];
-        let mut n = 0;
         // Same corner order as `stencil` (di outer, dk inner).
         for di in 0..2 {
             for dj in 0..2 {
                 for dk in 0..2 {
-                    grads[n] = [
-                        dhat(0, di) * hat(1, dj) * hat(2, dk),
-                        hat(0, di) * dhat(1, dj) * hat(2, dk),
-                        hat(0, di) * hat(1, dj) * dhat(2, dk),
+                    grads[stencil.len] = [
+                        dhat[0][di] * hat[1][dj] * hat[2][dk],
+                        hat[0][di] * dhat[1][dj] * hat[2][dk],
+                        hat[0][di] * hat[1][dj] * dhat[2][dk],
                     ];
-                    n += 1;
+                    let cell = self.idx_raw(lo[0] + di, lo[1] + dj, lo[2] + dk);
+                    stencil.push(cell, hat[0][di] * hat[1][dj] * hat[2][dk]);
                 }
             }
         }
