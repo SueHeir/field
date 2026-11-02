@@ -175,6 +175,7 @@ dependencies = [
  "grass_app",
  "grass_derive",
  "grass_io",
+ "grass_linalg",
  "grass_map",
  "grass_mpi",
  "grass_scheduler",
@@ -251,6 +252,14 @@ dependencies = [
  "grass_scheduler",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "grass_linalg"
+version = "0.1.1"
+source = "git+https://github.com/SueHeir/grass.git?branch=main#1c78bb66816e16db5c8140b8c4bb633193171c76"
+dependencies = [
+ "grass_mpi",
 ]
 
 [[package]]

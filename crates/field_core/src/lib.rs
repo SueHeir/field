@@ -39,6 +39,7 @@
 //! | [`component`] | [`Component`] — f64-serializable column element types | no (method-agnostic) |
 //! | [`halo`] | static halo plan + generic forward/reverse exchange | no (method-agnostic) |
 //! | [`uniform`] | [`UniformMesh`] — the structured Cartesian implementation | yes |
+//! | [`unstructured`] | [`UnstructuredMesh`] — a partitioned polyhedral (face-list) implementation | yes |
 //! | [`map`] | [`StructuredMapView`] — a structured mesh as a `grass_map::Discretization` | no |
 //! | [`schedule`] | [`MeshScheduleSet`] — explicit-step phase ordering | no |
 //! | [`plugin`] | GRASS plugins that install the mesh and registry | — |
@@ -59,6 +60,7 @@ pub mod partition;
 pub mod plugin;
 pub mod schedule;
 pub mod uniform;
+pub mod unstructured;
 
 pub use component::Component;
 pub use field_data::{FieldData, FieldRegistry, FieldRegistryError};
@@ -80,11 +82,12 @@ pub use mesh::{
 pub use operator::CellVector;
 pub use partition::{Bounds3, PartitionDirectory, PartitionExtent};
 pub use plugin::{
-    resize_fields, CommPlugin, FieldDefaultPlugins, FieldRegistryPlugin, UniformMeshPlugin,
-    FIELDS_ENTRY,
+    resize_fields, CommPlugin, FieldDefaultPlugins, FieldRegistryPlugin, GlobalPolyMesh,
+    UniformMeshPlugin, UnstructuredMeshPlugin, FIELDS_ENTRY,
 };
 pub use schedule::MeshScheduleSet;
 pub use uniform::{DecompositionError, MeshPeriodicity, UniformMesh, UniformMeshConfig};
+pub use unstructured::{PolyCell, PolyFace, PolyMesh, UnstructuredMesh};
 
 /// Commonly used FIELD imports.
 pub mod prelude {
@@ -93,6 +96,6 @@ pub mod prelude {
         DecompositionError, Face, FieldData, FieldDefaultPlugins, FieldRegistry,
         FieldRegistryError, FieldRegistryPlugin, FvMesh, MeshPeriodicity, MeshScheduleSet,
         PartitionDirectory, PartitionExtent, StructuredMesh, UniformMesh, UniformMeshConfig,
-        UniformMeshPlugin, Vec3,
+        UniformMeshPlugin, PolyMesh, UnstructuredMesh, UnstructuredMeshPlugin, Vec3,
     };
 }

@@ -16,7 +16,9 @@
 //! ```
 
 use crate::uniform::{factor_decomposition, rank_position};
+use crate::unstructured::{PolyMesh, UnstructuredMesh};
 use crate::{FieldRegistry, FvMesh, MeshPeriodicity, UniformMesh, UniformMeshConfig};
+use std::sync::Arc;
 use grass_app::prelude::*;
 use grass_mpi::CommResource;
 use grass_scheduler::{Res, ResMut};
@@ -138,6 +140,52 @@ fn decompose_mesh(
 /// solver bundle registers `resize_fields::<ForestMesh>`).
 pub fn resize_fields<M: FvMesh>(mesh: Res<M>, reg: Res<FieldRegistry>) {
     reg.resize_all(mesh.n_cells_total());
+}
+
+/// Installs an [`UnstructuredMesh`] built from a global [`PolyMesh`]. Like
+/// [`UniformMeshPlugin`], the mesh starts as the serial whole and is
+/// partitioned in place by a `PreSetup` system once the rank count is known
+/// (recursive coordinate bisection over cell centroids).
+pub struct UnstructuredMeshPlugin {
+    /// The whole mesh, shared by every rank.
+    pub mesh: Arc<PolyMesh>,
+}
+
+/// The global [`PolyMesh`] an [`UnstructuredMeshPlugin`] partitions from, kept
+/// as a resource so later systems (output, repartitioning) can reach it.
+pub struct GlobalPolyMesh(pub Arc<PolyMesh>);
+
+impl Plugin for UnstructuredMeshPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(grass_mpi::MpiPlugin);
+        app.add_resource(GlobalPolyMesh(self.mesh.clone()));
+        app.add_resource(UnstructuredMesh::serial(&self.mesh));
+        app.add_setup_system(decompose_unstructured, ScheduleSetupSet::PreSetup);
+        app.add_setup_system(resize_fields::<UnstructuredMesh>, ScheduleSetupSet::Setup);
+    }
+
+    fn provides(&self) -> Vec<&str> {
+        vec!["mesh", "unstructured_mesh"]
+    }
+
+    fn requires(&self) -> Vec<&str> {
+        vec!["field_registry", "comm"]
+    }
+}
+
+/// `PreSetup`: replace the serial [`UnstructuredMesh`] with this rank's
+/// partition when there is more than one rank.
+fn decompose_unstructured(
+    global: Res<GlobalPolyMesh>,
+    comm: Res<CommResource>,
+    mut mesh: ResMut<UnstructuredMesh>,
+) {
+    let size = comm.size();
+    if size <= 1 {
+        return;
+    }
+    let owner = global.0.rcb_partition(size as usize);
+    *mesh = UnstructuredMesh::partition(&global.0, &owner, comm.rank());
 }
 
 /// The standard FIELD substrate bundle: comm backend, field registry, and a
