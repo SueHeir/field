@@ -121,6 +121,20 @@ pub trait FieldData: Any + Send + Sync {
 
     // ── zero: reset per-step accumulators ──────────────────────────────────────
 
+    /// Append the store's whole state, every cell of every column that is not
+    /// a `#[zero]` accumulator, to `buf`. Used by checkpoints; the default
+    /// saves nothing.
+    fn pack_state(&self, buf: &mut Vec<f64>) {
+        let _ = buf;
+    }
+
+    /// Read back what [`pack_state`](Self::pack_state) wrote, into a store
+    /// already sized to the same mesh; return the number of `f64`s consumed.
+    fn unpack_state(&mut self, buf: &[f64]) -> usize {
+        let _ = buf;
+        0
+    }
+
     /// Reset cell `c`'s `#[zero]` accumulator columns to zero.
     fn zero_cell(&mut self, c: usize) {
         let _ = c;
@@ -269,6 +283,40 @@ impl FieldRegistry {
     /// fallible path use [`get_mut`](Self::get_mut).
     pub fn expect_mut<F: FieldData + 'static>(&self, context: &str) -> RefMut<'_, F> {
         self.get_mut::<F>().unwrap_or_else(|| panic!("{context}"))
+    }
+
+    /// Every store's [`FieldData::pack_state`], in registration order.
+    pub fn pack_state_all(&self) -> Vec<Vec<f64>> {
+        self.stores
+            .iter()
+            .map(|(_, cell)| {
+                let mut buf = Vec::new();
+                cell.borrow().pack_state(&mut buf);
+                buf
+            })
+            .collect()
+    }
+
+    /// Restore every store from [`pack_state_all`](Self::pack_state_all)'s
+    /// output. The registry must hold the same stores, sized to the same mesh.
+    pub fn unpack_state_all(&self, bufs: &[Vec<f64>]) -> Result<(), String> {
+        if bufs.len() != self.stores.len() {
+            return Err(format!(
+                "{} field stores saved, {} registered",
+                bufs.len(),
+                self.stores.len()
+            ));
+        }
+        for (i, ((_, cell), buf)) in self.stores.iter().zip(bufs).enumerate() {
+            let used = cell.borrow_mut().unpack_state(buf);
+            if used != buf.len() {
+                return Err(format!(
+                    "field store {i}: {} values saved, {used} read (different mesh?)",
+                    buf.len()
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Resize every registered field to `n` cells.

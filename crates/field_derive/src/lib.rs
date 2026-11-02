@@ -141,6 +141,7 @@ pub fn derive_field_data(input: TokenStream) -> TokenStream {
     let forward_methods = build_comm(&infos, Dir::Forward);
     let reverse_methods = build_comm(&infos, Dir::Reverse);
     let zero_method = build_zero(&infos);
+    let state_methods = build_state(&infos);
 
     quote! {
         impl #impl_generics ::field_core::FieldData for #name #ty_generics #where_clause {
@@ -156,6 +157,7 @@ pub fn derive_field_data(input: TokenStream) -> TokenStream {
             #forward_methods
             #reverse_methods
             #zero_method
+            #state_methods
         }
     }
     .into()
@@ -260,6 +262,54 @@ fn build_zero(infos: &[FieldInfo]) -> proc_macro2::TokenStream {
     quote! {
         fn zero_cell(&mut self, c: usize) {
             #(#stmts)*
+        }
+    }
+}
+
+/// Build `pack_state` / `unpack_state` over every column that is not a
+/// `#[zero]` accumulator: the store's whole state, for checkpoints.
+fn build_state(infos: &[FieldInfo]) -> proc_macro2::TokenStream {
+    let kept: Vec<&FieldInfo> = infos.iter().filter(|f| !f.is_zero).collect();
+    if kept.is_empty() {
+        return quote! {};
+    }
+    let pack: Vec<_> = kept
+        .iter()
+        .map(|f| {
+            let id = &f.ident;
+            let inner = &f.inner;
+            quote! {
+                for v in &self.#id {
+                    <#inner as ::field_core::Component>::write(v, buf);
+                }
+            }
+        })
+        .collect();
+    let unpack: Vec<_> = kept
+        .iter()
+        .map(|f| {
+            let id = &f.ident;
+            let inner = &f.inner;
+            quote! {
+                for v in self.#id.iter_mut() {
+                    let w = <#inner as ::field_core::Component>::WIDTH;
+                    if off + w > buf.len() {
+                        return buf.len() + 1;
+                    }
+                    *v = <#inner as ::field_core::Component>::read(&buf[off..]);
+                    off += w;
+                }
+            }
+        })
+        .collect();
+    quote! {
+        fn pack_state(&self, buf: &mut Vec<f64>) {
+            #(#pack)*
+        }
+        fn unpack_state(&mut self, buf: &[f64]) -> usize {
+            let mut off = 0usize;
+            #(#unpack)*
+            off
         }
     }
 }

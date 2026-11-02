@@ -218,7 +218,11 @@ impl UniformMesh {
                 }
                 neighbor[dim][side] = rank_of(p[0], p[1], p[2]);
             }
-            if neighbor[dim] != [-1, -1] {
+            // A periodic axis on one rank links to itself; its ghosts can wrap
+            // round the interior more than once, so it may have fewer cells
+            // than ghost layers (a 1-cell-thick "2-D" axis).
+            let self_wrap = periodic[dim] && np[dim] == 1;
+            if neighbor[dim] != [-1, -1] && !self_wrap {
                 assert!(
                     local_n[dim] >= ng,
                     "UniformMesh: axis {dim} has {} local cells but ng = {ng} ghost layers; \
@@ -343,9 +347,37 @@ impl UniformMesh {
             }
             v
         };
+        // One layer along `dim` at raw index `d`.
+        let slab_at = |d: usize| -> Vec<usize> {
+            let mut v = Vec::with_capacity(r1.len() * r2.len());
+            for i1 in r1.clone() {
+                for i2 in r2.clone() {
+                    v.push(raw(d, i1, i2));
+                }
+            }
+            v
+        };
         // lo: send the first ng interior layers, recv into the lo ghosts.
         // hi: send the last ng interior layers, recv into the hi ghosts.
         let [lo, hi] = self.neighbor[dim];
+        if lo >= 0 && lo == hi && n[dim] < ng {
+            // Only a periodic axis on one rank gets here (checked at build):
+            // each ghost layer copies the interior layer it wraps onto, which
+            // can be the same layer for several ghosts.
+            let wrap = |layer: isize| ng + layer.rem_euclid(n[dim] as isize) as usize;
+            let mut send_cells = Vec::new();
+            let mut recv_cells = Vec::new();
+            for g in 0..ng {
+                // lo ghost layer g sits at logical index g - ng; hi ghost layer
+                // g at n + g.
+                send_cells.extend(slab_at(wrap(g as isize - ng as isize)));
+                recv_cells.extend(slab_at(g));
+                send_cells.extend(slab_at(wrap((n[dim] + g) as isize)));
+                recv_cells.extend(slab_at(ng + n[dim] + g));
+            }
+            links.push(HaloLink { rank: lo, send_cells, recv_cells });
+            return HaloPlan { links };
+        }
         if lo >= 0 && lo == hi {
             let mut send_cells = slab(ng);
             send_cells.extend(slab(n[dim]));
@@ -441,6 +473,29 @@ impl UniformMesh {
 
     /// x cell-center coordinate for a raw i index (handles ghosts via signed offset).
     #[inline]
+    /// The region this rank owns, as one [`crate::PartitionExtent`] for
+    /// `role_rank`. Every rank of a code can send its own extent to another
+    /// code, which assembles them with
+    /// [`crate::PartitionDirectory::from_extents`]: the code's real
+    /// partition, not one rebuilt from its config.
+    pub fn owned_extent(&self, role_rank: i32) -> crate::PartitionExtent {
+        let ng = self.ng;
+        let x_lo = self.origin[0] + self.offset[0] as f64 * self.dx;
+        let lo_of = |c: &[f64], d: &[f64]| c[ng] - 0.5 * d[ng];
+        let hi_of = |c: &[f64], d: &[f64], n: usize| c[ng + n - 1] + 0.5 * d[ng + n - 1];
+        crate::PartitionExtent {
+            role_rank,
+            bounds: crate::Bounds3::new(
+                [x_lo, lo_of(&self.y_arr, &self.dy_arr), lo_of(&self.z_arr, &self.dz_arr)],
+                [
+                    x_lo + self.ni as f64 * self.dx,
+                    hi_of(&self.y_arr, &self.dy_arr, self.nj),
+                    hi_of(&self.z_arr, &self.dz_arr, self.nk),
+                ],
+            ),
+        }
+    }
+
     fn x_center_raw(&self, ir: usize) -> f64 {
         let i_int = ir as i64 - self.ng as i64; // may be negative in the ghost band
         self.origin[0] + (self.offset[0] as i64 + i_int) as f64 * self.dx + 0.5 * self.dx

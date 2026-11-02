@@ -387,3 +387,71 @@ mod mpi {
         }
     }
 }
+
+/// A periodic axis on one rank may have fewer cells than ghost layers (a
+/// 1-cell-thick "2-D" axis, or 1 cell with ng = 2): every ghost then copies
+/// the interior layer it wraps onto, and a reverse exchange folds every
+/// ghost's contribution back onto it.
+#[test]
+fn periodic_axis_thinner_than_the_ghost_layers_wraps() {
+    for (ny, ng) in [(1usize, 2usize), (1, 3), (2, 3)] {
+        let cfg = UniformMeshConfig {
+            nx: 3,
+            ny,
+            nz: 1,
+            ng,
+            bounds_lo: [0.0; 3],
+            bounds_hi: [3.0, ny as f64, 1.0],
+            y_edges: None,
+            z_edges: None,
+        };
+        let mesh =
+            UniformMesh::from_config_periodic(&cfg, [1, 1, 1], [0, 0, 0], [false, true, false]);
+        let mut reg = FieldRegistry::new();
+        reg.register(Probe::default());
+        reg.resize_all(mesh.n_cells_total());
+        let tot = mesh.total_dims();
+        let interior = |r: usize, a: usize| r >= ng && r < ng + mesh.dims()[a];
+        {
+            let mut p = reg.get_mut::<Probe>().unwrap();
+            for ir in 0..tot[0] {
+                for jr in 0..tot[1] {
+                    for kr in 0..tot[2] {
+                        let c = mesh.idx_raw(ir, jr, kr);
+                        let inside = interior(ir, 0) && interior(jr, 1) && interior(kr, 2);
+                        p.u[c] = if inside {
+                            (ir * 100 + jr) as f64
+                        } else {
+                            SENTINEL
+                        };
+                        p.r[c] = if interior(ir, 0) && interior(kr, 2) && !interior(jr, 1) {
+                            1.0
+                        } else {
+                            0.0
+                        };
+                    }
+                }
+            }
+        }
+        let comm = grass_mpi::SingleProcessComm::new();
+        halo_exchange_forward_all(mesh.halo_plan(), &reg, &comm);
+        halo_exchange_reverse_all(mesh.halo_plan(), &reg, &comm);
+        let p = reg.get::<Probe>().unwrap();
+        for ir in ng..ng + 3 {
+            let kr = ng;
+            for jr in 0..tot[1] {
+                let wrapped = ng + (jr as isize - ng as isize).rem_euclid(ny as isize) as usize;
+                let c = mesh.idx_raw(ir, jr, kr);
+                assert_eq!(
+                    p.u[c],
+                    (ir * 100 + wrapped) as f64,
+                    "ny {ny} ng {ng}: y ghost {jr}"
+                );
+            }
+            // Each interior cell gets back one contribution per ghost that
+            // wraps onto it: 2 ng ghosts shared among ny cells.
+            let folded: f64 = (ng..ng + ny).map(|jr| p.r[mesh.idx_raw(ir, jr, kr)]).sum();
+            assert_eq!(folded, (2 * ng) as f64, "ny {ny} ng {ng}");
+        }
+    }
+}

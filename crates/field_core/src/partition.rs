@@ -38,6 +38,37 @@ pub struct PartitionExtent {
     pub bounds: Bounds3,
 }
 
+impl PartitionExtent {
+    /// Bytes to send to another code: the rank and the six bounds,
+    /// little-endian.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut b = Vec::with_capacity(52);
+        b.extend_from_slice(&self.role_rank.to_le_bytes());
+        for x in self.bounds.lo.iter().chain(&self.bounds.hi) {
+            b.extend_from_slice(&x.to_le_bytes());
+        }
+        b
+    }
+
+    /// Read what [`to_bytes`](Self::to_bytes) wrote.
+    pub fn from_bytes(b: &[u8]) -> Result<Self, String> {
+        if b.len() != 52 {
+            return Err(format!("a partition extent is 52 bytes, got {}", b.len()));
+        }
+        let f = |i: usize| f64::from_le_bytes(b[4 + 8 * i..12 + 8 * i].try_into().unwrap());
+        let (lo, hi) = ([f(0), f(1), f(2)], [f(3), f(4), f(5)]);
+        if !(0..3).all(|a| lo[a] <= hi[a]) {
+            return Err(format!(
+                "partition extent bounds out of order: {lo:?}..{hi:?}"
+            ));
+        }
+        Ok(Self {
+            role_rank: i32::from_le_bytes(b[..4].try_into().unwrap()),
+            bounds: Bounds3::new(lo, hi),
+        })
+    }
+}
+
 /// Searchable directory of FIELD role-rank ownership.
 ///
 /// A rank may own several extents, which accommodates adaptive forests and
@@ -119,6 +150,24 @@ impl PartitionDirectory {
             Bounds3::new(cfg.bounds_lo, cfg.bounds_hi),
             extents,
         )
+    }
+
+    /// A directory from extents gathered from the owning code (for example
+    /// each rank's [`crate::UniformMesh::owned_extent`], sent across a
+    /// coupling). The global bounds are their union.
+    pub fn from_extents(role_size: i32, extents: Vec<PartitionExtent>) -> Self {
+        assert!(!extents.is_empty(), "a partition needs at least one extent");
+        let mut lo = extents[0].bounds.lo;
+        let mut hi = extents[0].bounds.hi;
+        for e in &extents {
+            for axis in 0..3 {
+                lo[axis] = lo[axis].min(e.bounds.lo[axis]);
+                hi[axis] = hi[axis].max(e.bounds.hi[axis]);
+            }
+        }
+        let mut extents = extents;
+        extents.sort_by_key(|e| e.role_rank);
+        Self::new(role_size, Bounds3::new(lo, hi), extents)
     }
 
     /// Number of ranks in the FIELD role communicator.
@@ -221,6 +270,55 @@ impl grass_mpi::OwnerMap for PartitionDirectory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each rank's real mesh, sent as bytes and reassembled by the other
+    /// code, gives the same directory as rebuilding it from the config.
+    #[test]
+    fn extents_sent_by_each_rank_rebuild_the_directory() {
+        let cfg = UniformMeshConfig {
+            nx: 7,
+            ny: 5,
+            nz: 4,
+            ng: 2,
+            bounds_lo: [-1.0, 0.0, 2.0],
+            bounds_hi: [2.5, 1.0, 3.0],
+            y_edges: Some(vec![0.0, 0.1, 0.3, 0.6, 0.8, 1.0]),
+            z_edges: None,
+        };
+        let decomp = [2, 2, 1];
+        let mut received = Vec::new();
+        for px in 0..2 {
+            for py in 0..2 {
+                let mesh = crate::UniformMesh::from_config_decomposed(&cfg, decomp, [px, py, 0]);
+                let rank = px * 2 + py;
+                let bytes = mesh.owned_extent(rank).to_bytes();
+                received.push(PartitionExtent::from_bytes(&bytes).unwrap());
+            }
+        }
+        received.reverse(); // arrival order does not matter
+        let sent = PartitionDirectory::from_extents(4, received);
+        let rebuilt = PartitionDirectory::from_uniform_config(&cfg, decomp);
+        assert_eq!(sent.extents().len(), 4);
+        for (a, b) in sent.extents().iter().zip(rebuilt.extents()) {
+            assert_eq!(a.role_rank, b.role_rank);
+            for axis in 0..3 {
+                assert!(
+                    (a.bounds.lo[axis] - b.bounds.lo[axis]).abs() < 1e-12,
+                    "{a:?} vs {b:?}"
+                );
+                assert!(
+                    (a.bounds.hi[axis] - b.bounds.hi[axis]).abs() < 1e-12,
+                    "{a:?} vs {b:?}"
+                );
+            }
+        }
+        for i in 0..50 {
+            let t = i as f64 / 49.0;
+            let p = [-1.0 + 3.5 * t, (t * 7.3).fract(), 2.0 + (t * 3.1).fract()];
+            assert_eq!(sent.owner_rank(p), rebuilt.owner_rank(p), "{p:?}");
+        }
+        assert!(PartitionExtent::from_bytes(&[0u8; 10]).is_err());
+    }
 
     fn x_split() -> PartitionDirectory {
         PartitionDirectory::from_uniform_config(
