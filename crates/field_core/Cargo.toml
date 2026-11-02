@@ -16,6 +16,10 @@ grass_mpi.workspace = true
 # Dependency-free; lets FIELD meshes plug into GRASS mapping/coupling (see `map`).
 grass_map.workspace = true
 
+[dev-dependencies]
+# The distributed CG solve on an unstructured mesh (tests/unstructured_fv.rs).
+grass_linalg.workspace = true
+
 [features]
 # Forwarded to grass_mpi so a parallel build of FIELD pulls in the real backend.
 mpi_backend = ["grass_mpi/mpi_backend"]
