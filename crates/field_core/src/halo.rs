@@ -193,6 +193,36 @@ pub fn halo_exchange_forward_all(
     );
 }
 
+/// Forward-exchange every forward-participating store through a sequence of
+/// plans, one after another (for example
+/// [`crate::UniformMesh::corner_halo_plans`], which fills edge and corner
+/// ghosts when run in x, y, z order).
+pub fn halo_exchange_forward_all_with_corners(
+    plans: &[HaloPlan],
+    registry: &FieldRegistry,
+    comm: &dyn CommBackend,
+) {
+    for plan in plans {
+        halo_exchange_forward_all(plan, registry, comm);
+    }
+}
+
+/// Reverse-exchange every reverse-participating store through a sequence of
+/// plans in **reverse** order, the adjoint of
+/// [`halo_exchange_forward_all_with_corners`]. With
+/// [`crate::UniformMesh::corner_halo_plans`] this folds deposits in edge and
+/// corner ghosts back onto their owners: z first carries them onto y/x ghost
+/// layers, which the y and x stages then fold onto owned cells.
+pub fn halo_exchange_reverse_all_with_corners(
+    plans: &[HaloPlan],
+    registry: &FieldRegistry,
+    comm: &dyn CommBackend,
+) {
+    for plan in plans.iter().rev() {
+        halo_exchange_reverse_all(plan, registry, comm);
+    }
+}
+
 /// Reverse-exchange every reverse-participating store: ghost contributions →
 /// owner cells, **accumulate** (`+=`) semantics. The send/recv roles swap
 /// relative to forward — we pack the *ghost* cells and add into the *interior*

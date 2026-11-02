@@ -100,6 +100,9 @@ pub struct UniformMesh {
     periodic: [bool; 3],
     /// Precomputed static halo pattern.
     halo: HaloPlan,
+    /// Per-axis halo plans that also fill edge and corner ghosts when run in
+    /// order (see [`UniformMesh::corner_halo_plans`]).
+    corner_halo: [HaloPlan; 3],
     /// Precomputed per-cell axis neighbours (flat, `6·n_cells_total`), indexed
     /// `6·c + (axis·2 + hi)` — the [`CartesianMesh`] stencil for MUSCL/gradients.
     /// Each local cell's six entries are the raw flat indices of the adjacent
@@ -243,9 +246,11 @@ impl UniformMesh {
             neighbor,
             periodic,
             halo: HaloPlan::empty(),
+            corner_halo: [HaloPlan::empty(), HaloPlan::empty(), HaloPlan::empty()],
             axis_nbr: Vec::new(),
         };
         mesh.halo = mesh.build_halo_plan();
+        mesh.corner_halo = [0, 1, 2].map(|dim| mesh.build_axis_halo_plan(dim, true));
         mesh.axis_nbr = mesh.build_axis_nbr();
         mesh
     }
@@ -291,59 +296,90 @@ impl UniformMesh {
     /// keeps at most one link per neighbour rank per axis (the ordering contract
     /// of [`HaloPlan`]).
     fn build_halo_plan(&self) -> HaloPlan {
+        let links = (0..3)
+            .flat_map(|dim| self.build_axis_halo_plan(dim, false).links)
+            .collect();
+        HaloPlan { links }
+    }
+
+    /// The links for one axis. With `corners`, the slab also spans the ghost
+    /// layers of every *earlier* axis that has a halo link on that side, so
+    /// running the three per-axis plans in x, y, z order carries values into
+    /// edge and corner ghosts (and the reverse order folds them back). Both
+    /// ends of a link sit at the same position along the earlier axes, so they
+    /// agree on which ghost layers are included and the orderings match.
+    fn build_axis_halo_plan(&self, dim: usize, corners: bool) -> HaloPlan {
         let ng = self.ng;
         let n = [self.ni, self.nj, self.nk];
         let mut links = Vec::new();
+        let dim1 = (dim + 1) % 3;
+        let dim2 = (dim + 2) % 3;
+        // Transverse raw-index range: interior, widened by the linked ghost
+        // layers of an earlier axis when `corners` is set.
+        let range = |a: usize| -> std::ops::Range<usize> {
+            let widen = corners && a < dim;
+            let lo = if widen && self.neighbor[a][0] >= 0 { 0 } else { ng };
+            let hi = if widen && self.neighbor[a][1] >= 0 { n[a] + 2 * ng } else { ng + n[a] };
+            lo..hi
+        };
+        let (r1, r2) = (range(dim1), range(dim2));
 
-        for dim in 0..3usize {
-            let dim1 = (dim + 1) % 3;
-            let dim2 = (dim + 2) % 3;
-            let n1 = n[dim1];
-            let n2 = n[dim2];
-
-            let raw = |d: usize, d1: usize, d2: usize| -> usize {
-                let mut ijk = [0usize; 3];
-                ijk[dim] = d;
-                ijk[dim1] = d1;
-                ijk[dim2] = d2;
-                self.raw_idx(ijk[0], ijk[1], ijk[2])
-            };
-            // `ng` layers along `dim` starting at raw index `start`.
-            let slab = |start: usize| -> Vec<usize> {
-                let mut v = Vec::with_capacity(ng * n1 * n2);
-                for g in 0..ng {
-                    for i1 in 0..n1 {
-                        for i2 in 0..n2 {
-                            v.push(raw(start + g, ng + i1, ng + i2));
-                        }
+        let raw = |d: usize, d1: usize, d2: usize| -> usize {
+            let mut ijk = [0usize; 3];
+            ijk[dim] = d;
+            ijk[dim1] = d1;
+            ijk[dim2] = d2;
+            self.raw_idx(ijk[0], ijk[1], ijk[2])
+        };
+        // `ng` layers along `dim` starting at raw index `start`.
+        let slab = |start: usize| -> Vec<usize> {
+            let mut v = Vec::with_capacity(ng * r1.len() * r2.len());
+            for g in 0..ng {
+                for i1 in r1.clone() {
+                    for i2 in r2.clone() {
+                        v.push(raw(start + g, i1, i2));
                     }
                 }
-                v
-            };
-            // lo: send the first ng interior layers, recv into the lo ghosts.
-            // hi: send the last ng interior layers, recv into the hi ghosts.
-            let [lo, hi] = self.neighbor[dim];
-            if lo >= 0 && lo == hi {
-                let mut send_cells = slab(ng);
-                send_cells.extend(slab(n[dim]));
-                let mut recv_cells = slab(ng + n[dim]);
-                recv_cells.extend(slab(0));
-                links.push(HaloLink { rank: lo, send_cells, recv_cells });
-                continue;
             }
-            if lo >= 0 {
-                links.push(HaloLink { rank: lo, send_cells: slab(ng), recv_cells: slab(0) });
-            }
-            if hi >= 0 {
-                links.push(HaloLink {
-                    rank: hi,
-                    send_cells: slab(n[dim]),
-                    recv_cells: slab(ng + n[dim]),
-                });
-            }
+            v
+        };
+        // lo: send the first ng interior layers, recv into the lo ghosts.
+        // hi: send the last ng interior layers, recv into the hi ghosts.
+        let [lo, hi] = self.neighbor[dim];
+        if lo >= 0 && lo == hi {
+            let mut send_cells = slab(ng);
+            send_cells.extend(slab(n[dim]));
+            let mut recv_cells = slab(ng + n[dim]);
+            recv_cells.extend(slab(0));
+            links.push(HaloLink { rank: lo, send_cells, recv_cells });
+            return HaloPlan { links };
         }
-
+        if lo >= 0 {
+            links.push(HaloLink { rank: lo, send_cells: slab(ng), recv_cells: slab(0) });
+        }
+        if hi >= 0 {
+            links.push(HaloLink {
+                rank: hi,
+                send_cells: slab(n[dim]),
+                recv_cells: slab(ng + n[dim]),
+            });
+        }
         HaloPlan { links }
+    }
+
+    /// Three per-axis halo plans (x, y, z) that, run **in order**, also fill
+    /// edge and corner (diagonal) ghosts, which [`FvMesh::halo_plan`] leaves
+    /// alone. Run them in reverse order for a reverse (ghost → owner) exchange.
+    /// Use them with [`crate::halo_exchange_forward_all_with_corners`] and
+    /// [`crate::halo_exchange_reverse_all_with_corners`].
+    ///
+    /// Needed by anything that reads or deposits through a trilinear stencil
+    /// near a subdomain corner: particle-in-cell charge deposit and field
+    /// gather, MPM grid transfers, IBM interpolation. Costs three dependent
+    /// rounds of messages instead of one, so face-only FVM keeps using
+    /// [`FvMesh::halo_plan`].
+    pub fn corner_halo_plans(&self) -> &[HaloPlan; 3] {
+        &self.corner_halo
     }
 
     /// Precompute the six axis neighbours of every cell as raw flat indices, in
