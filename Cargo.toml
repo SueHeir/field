@@ -23,10 +23,10 @@ repository = "https://github.com/SueHeir/field"
 # DIRT path-patches SOIL during local development.
 [workspace.dependencies]
 field_derive = { path = "crates/field_derive" }
-grass_app = { git = "https://github.com/SueHeir/grass.git", branch = "claude/project-thread-zipsx3" }
-grass_scheduler = { git = "https://github.com/SueHeir/grass.git", branch = "claude/project-thread-zipsx3" }
-grass_derive = { git = "https://github.com/SueHeir/grass.git", branch = "claude/project-thread-zipsx3" }
-grass_mpi = { git = "https://github.com/SueHeir/grass.git", branch = "claude/project-thread-zipsx3" }
-grass_map = { git = "https://github.com/SueHeir/grass.git", branch = "claude/project-thread-zipsx3" }
-grass_io = { git = "https://github.com/SueHeir/grass.git", branch = "claude/project-thread-zipsx3" }
+grass_app = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
+grass_scheduler = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
+grass_derive = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
+grass_mpi = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
+grass_map = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
+grass_io = { git = "https://github.com/SueHeir/grass.git", branch = "main" }
 serde = { version = "1", features = ["derive"] }
