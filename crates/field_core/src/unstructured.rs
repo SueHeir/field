@@ -42,9 +42,11 @@
 //! - Cell geometry is precomputed (centroid + volume), not derived from
 //!   vertices.
 
-use crate::halo::{HaloLink, HaloPlan};
+use crate::field_data::FieldRegistry;
+use crate::halo::{halo_exchange_forward_all, HaloLink, HaloPlan};
 use crate::mesh::{BoundarySide, Face, FvMesh, PatchId, Vec3};
 use crate::uniform::UniformMeshConfig;
+use grass_mpi::CommBackend;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// One control volume of a [`PolyMesh`].
@@ -541,6 +543,70 @@ impl UnstructuredMesh {
     /// Name of boundary patch `p`.
     pub fn patch_name(&self, p: PatchId) -> &str {
         &self.patch_names[p as usize]
+    }
+    /// Move this rank's cells to a new partition of `global`, carrying every
+    /// registered field's **forward** columns with them, and return the new
+    /// local mesh. Collective over `comm`.
+    ///
+    /// Afterwards the registry is sized to the new mesh, owned and halo cells
+    /// hold their migrated values, and `#[zero]`/`#[reverse]` columns are
+    /// zeroed: anything that must survive a repartition has to be a forward
+    /// column. Boundary ghosts are left for the next `Boundary` phase. The
+    /// caller replaces the mesh resource with the result; any system that
+    /// cached mesh-shaped data (a `CellVector`, an owned-cell list) must
+    /// rebuild it.
+    pub fn repartition(
+        &self,
+        global: &PolyMesh,
+        new_owner: &[i32],
+        registry: &FieldRegistry,
+        comm: &dyn CommBackend,
+    ) -> UnstructuredMesh {
+        let (rank, size) = (comm.rank(), comm.size());
+        let next = UnstructuredMesh::partition(global, new_owner, rank);
+        // Pack [count, gids.., forward data..] per destination, in old layout.
+        let mut cells_to: Vec<Vec<usize>> = vec![Vec::new(); size as usize];
+        for c in 0..self.n_owned {
+            let g = self.global_ids[c];
+            cells_to[new_owner[g] as usize].push(c);
+        }
+        let outgoing: Vec<Vec<f64>> = cells_to
+            .iter()
+            .map(|cells| {
+                let mut buf = Vec::with_capacity(1 + cells.len() * (1 + registry.forward_size()));
+                buf.push(cells.len() as f64);
+                buf.extend(cells.iter().map(|&c| self.global_ids[c] as f64));
+                registry.pack_forward_all_cells(cells, &mut buf);
+                buf
+            })
+            .collect();
+        // Pairwise exchange: in round k send to rank + k, receive from rank - k.
+        let mut incoming = Vec::with_capacity(size as usize);
+        incoming.push(outgoing[rank as usize].clone());
+        for k in 1..size {
+            let dest = (rank + k) % size;
+            let src = (rank - k + size) % size;
+            incoming.push(comm.sendrecv_f64(dest, &outgoing[dest as usize], src));
+        }
+        // Unpack into the new layout.
+        let local_of: HashMap<usize, usize> =
+            (0..next.n_owned).map(|c| (next.global_ids[c], c)).collect();
+        registry.resize_all(next.n_cells_total());
+        registry.zero_all(next.n_cells_total());
+        let mut received = 0;
+        for buf in &incoming {
+            let n = buf[0] as usize;
+            let cells: Vec<usize> = buf[1..1 + n]
+                .iter()
+                .map(|&g| local_of[&(g as usize)])
+                .collect();
+            let used = registry.unpack_forward_all_cells(&cells, &buf[1 + n..]);
+            debug_assert_eq!(used, buf.len() - 1 - n, "repartition message size");
+            received += n;
+        }
+        assert_eq!(received, next.n_owned, "every new owned cell arrives once");
+        halo_exchange_forward_all(&next.halo, registry, comm);
+        next
     }
 }
 
