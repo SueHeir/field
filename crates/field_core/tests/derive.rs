@@ -118,3 +118,21 @@ fn round_trips_through_the_registry() {
     assert_eq!(consumed, 2);
     assert_eq!(reg.get::<State>().unwrap().u[2], Duo { a: 1.5, b: -2.5 });
 }
+
+/// A store generic over its per-cell width, as a lattice-Boltzmann code uses
+/// for D2Q9 and D3Q19 populations from one source.
+#[derive(FieldData, Default)]
+struct Populations<const Q: usize> {
+    #[forward]
+    f: Vec<[f64; Q]>,
+}
+
+#[test]
+fn derive_supports_const_generic_stores() {
+    let mut reg = FieldRegistry::new();
+    reg.register(Populations::<9>::default());
+    reg.register(Populations::<19>::default());
+    reg.resize_all(4);
+    assert_eq!(reg.forward_size(), 9 + 19);
+    assert_eq!(reg.get::<Populations<19>>().unwrap().f.len(), 4);
+}
