@@ -37,3 +37,12 @@ impl<'a> ForestPartitionDirectory<'a> {
         self.grid.overlapping_ranks(support.lo, support.hi)
     }
 }
+
+/// The coupling contract: couplers address records through
+/// [`field_core::OwnerMap`] and never need to name this type. This is a live
+/// view of the forest, so it always answers for the current partition.
+impl field_core::OwnerMap for ForestPartitionDirectory<'_> {
+    fn owner_rank(&self, point: [f64; 3]) -> Option<i32> {
+        ForestPartitionDirectory::owner_rank(*self, point)
+    }
+}
