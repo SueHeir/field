@@ -355,6 +355,84 @@ mod mpi {
         v
     }
 
+    /// `steps` explicit steps on the whole mesh, with no App and no comm.
+    fn serial_reference(serial: &UnstructuredMesh, steps: usize) -> Scalar {
+        let n = serial.n_local_cells();
+        let mut s = Scalar {
+            u: vec![0.0; serial.n_cells_total()],
+            rhs: vec![0.0; serial.n_cells_total()],
+        };
+        for c in 0..n {
+            s.u[c] = initial(serial.cell_centroid(c));
+        }
+        for _ in 0..steps {
+            fill_boundary(serial, &mut s, &advect_diffuse());
+            s.rhs.fill(0.0);
+            assemble_flux(serial, &mut s, &advect_diffuse());
+            for c in 0..n {
+                s.u[c] += advect_diffuse().dt * s.rhs[c];
+            }
+        }
+        s
+    }
+
+    /// Slabs in x with equal *weight* per rank, the weight crowding toward
+    /// x = 0.75 the way particles would: what a particle code's load
+    /// balancer asks the mesh to follow.
+    fn weighted_slabs(mesh: &PolyMesh, size: usize) -> Vec<i32> {
+        let w = |x: f64| 1.0 + 30.0 * (-(x - 0.75).powi(2) / 0.005).exp();
+        let mut order: Vec<usize> = (0..mesh.cells.len()).collect();
+        order.sort_by(|&a, &b| mesh.cells[a].centroid[0].total_cmp(&mesh.cells[b].centroid[0]));
+        let total: f64 = order.iter().map(|&g| w(mesh.cells[g].centroid[0])).sum();
+        let mut owner = vec![0; mesh.cells.len()];
+        let mut acc = 0.0;
+        for g in order {
+            let x = w(mesh.cells[g].centroid[0]);
+            owner[g] = (((acc + 0.5 * x) / total * size as f64) as i32).min(size as i32 - 1);
+            acc += x;
+        }
+        owner
+    }
+
+    /// Run 30 steps on the RCB partition, move to weighted slabs, run 30,
+    /// move to RCB shifted by one rank (every cell changes owner), run 30.
+    fn run_repartitioned(mesh: &Arc<PolyMesh>, comm: &dyn CommBackend) -> Vec<(usize, f64)> {
+        let size = comm.size() as usize;
+        let rcb = mesh.rcb_partition(size);
+        let shifted: Vec<i32> = rcb.iter().map(|&r| (r + 1) % size as i32).collect();
+        let mut app = App::new();
+        app.add_plugins(CommPlugin)
+            .add_plugins(FieldRegistryPlugin)
+            .add_plugins(UnstructuredMeshPlugin { mesh: mesh.clone() })
+            .add_plugins(ScalarPlugin::<UnstructuredMesh>(
+                advect_diffuse(),
+                PhantomData,
+            ));
+        app.prepare();
+        for owner in [None, Some(weighted_slabs(mesh, size)), Some(shifted)] {
+            if let Some(owner) = owner {
+                let comm = app.get_resource_ref::<CommResource>().expect("comm");
+                let reg = app.get_resource_ref::<FieldRegistry>().expect("registry");
+                let mut m = app.get_resource_mut::<UnstructuredMesh>().expect("mesh");
+                let next = m.repartition(mesh, &owner, &reg, &*comm.0);
+                let mine = (0..owner.len())
+                    .filter(|&g| owner[g] == comm.rank())
+                    .count();
+                assert_eq!(next.n_local_cells(), mine);
+                *m = next;
+            }
+            for _ in 0..30 {
+                app.run();
+            }
+        }
+        let m = app.get_resource_ref::<UnstructuredMesh>().expect("mesh");
+        let reg = app.get_resource_ref::<FieldRegistry>().expect("registry");
+        let s = reg.expect::<Scalar>("Scalar");
+        (0..m.n_local_cells())
+            .map(|c| (m.global_id(c).expect("owned"), s.u[c]))
+            .collect()
+    }
+
     fn run_child() {
         let mesh = prisms();
         let n = mesh.cells.len();
@@ -379,21 +457,7 @@ mod mpi {
 
         // Serial reference, computed on every rank with no communication.
         let serial = UnstructuredMesh::serial(&mesh);
-        let mut s = Scalar {
-            u: vec![0.0; serial.n_cells_total()],
-            rhs: vec![0.0; serial.n_cells_total()],
-        };
-        for c in 0..n {
-            s.u[c] = initial(serial.cell_centroid(c));
-        }
-        for _ in 0..80 {
-            fill_boundary(&serial, &mut s, &advect_diffuse());
-            s.rhs.fill(0.0);
-            assemble_flux(&serial, &mut s, &advect_diffuse());
-            for c in 0..n {
-                s.u[c] += advect_diffuse().dt * s.rhs[c];
-            }
-        }
+        let s = serial_reference(&serial, 80);
         let worst = (0..n).map(|g| (got[g] - s.u[g]).abs()).fold(0.0, f64::max);
         assert!(
             worst < 1e-12,
@@ -411,6 +475,16 @@ mod mpi {
         assert!(
             worst < 1e-8,
             "{size} ranks: implicit differs from serial by {worst:e}"
+        );
+
+        // Dynamic repartitioning mid-run: fields follow their cells.
+        let moved = run_repartitioned(&mesh, &comm);
+        let got = gather(&comm, n, &moved);
+        let s = serial_reference(&serial, 90);
+        let worst = (0..n).map(|g| (got[g] - s.u[g]).abs()).fold(0.0, f64::max);
+        assert!(
+            worst < 1e-12,
+            "{size} ranks: repartitioned run differs from serial by {worst:e}"
         );
 
         drop(comm);
