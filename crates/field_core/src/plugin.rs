@@ -21,23 +21,16 @@ use grass_app::prelude::*;
 use grass_mpi::CommResource;
 use grass_scheduler::{Res, ResMut};
 
-/// Installs the [`grass_mpi::CommResource`] — the serial no-op backend by default,
-/// or the real MPI backend under the `mpi_backend` feature. Provides the `"comm"`
-/// capability the mesh plugin requires.
+/// Makes sure the App has GRASS's shared [`grass_mpi::CommResource`] and
+/// provides the `"comm"` capability the mesh plugin requires. It adds
+/// [`grass_mpi::MpiPlugin`], which reuses a communicator another library (SOIL,
+/// a coupler) or the application already installed, and otherwise creates one:
+/// the real MPI backend under the `mpi_backend` feature, else the serial one.
 pub struct CommPlugin;
 
 impl Plugin for CommPlugin {
     fn build(&self, app: &mut App) {
-        #[cfg(not(feature = "mpi_backend"))]
-        app.add_resource(CommResource(Box::new(grass_mpi::SingleProcessComm::new())));
-        #[cfg(feature = "mpi_backend")]
-        app.add_resource(CommResource(Box::new(grass_mpi::MpiCommBackend::new(
-            grass_mpi::get_mpi_world(),
-        ))));
-    }
-
-    fn provides(&self) -> Vec<&str> {
-        vec!["comm"]
+        app.add_plugins(grass_mpi::MpiPlugin);
     }
 }
 
@@ -74,6 +67,9 @@ impl Plugin for UniformMeshPlugin {
     fn build(&self, app: &mut App) {
         // Config is stashed as a resource so the setup systems can read it; the
         // mesh starts single-process and is replaced once the rank grid is known.
+        // The mesh decomposes over the App's shared communicator, whichever
+        // library installed it; add GRASS's if nobody has yet.
+        app.add_plugins(grass_mpi::MpiPlugin);
         app.add_resource(self.config.clone());
         app.add_resource(UniformMesh::from_config(&self.config));
         app.add_setup_system(decompose_mesh, ScheduleSetupSet::PreSetup);
