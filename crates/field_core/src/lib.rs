@@ -55,6 +55,7 @@ pub mod halo;
 pub mod hierarchy;
 pub mod map;
 pub mod mesh;
+pub mod numbering;
 pub mod operator;
 pub mod partition;
 pub mod plugin;
@@ -79,6 +80,7 @@ pub use mesh::{
     AdaptiveMesh, BoundarySide, CartesianMesh, CoarseFineFace, Face, FvMesh, PatchId,
     StructuredMesh, Vec3,
 };
+pub use numbering::{DistCsr, GlobalNumbering};
 pub use operator::CellVector;
 pub use partition::{Bounds3, PartitionDirectory, PartitionExtent};
 pub use plugin::{
