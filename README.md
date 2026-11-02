@@ -89,6 +89,7 @@ prototype it replaces. Three deliberate departures:
 - **`field_p4est`** — p4est-backed forest mesh with cross-rank halo plans and a
   coupling `PartitionDirectory`.
 - **`field_transfer`** — conservative particle ⇄ mesh scatter/gather (CIC).
+- **`field_gpu`** — optional GPU storage: per-cell columns that take part in ordinary halo exchange.
 - **MPI decomposition** — `CommPlugin` (serial no-op or real MPI backend),
   `FieldDefaultPlugins` bundle, and a `PreSetup` system that factors the rank count
   into a process grid, records it on the comm, and rebuilds the local partition
