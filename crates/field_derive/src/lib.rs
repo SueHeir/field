@@ -136,12 +136,14 @@ pub fn derive_field_data(input: TokenStream) -> TokenStream {
         None => quote! { 0 },
     };
 
+    // Generic stores (e.g. `Populations<const Q: usize>`) get a generic impl.
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let forward_methods = build_comm(&infos, Dir::Forward);
     let reverse_methods = build_comm(&infos, Dir::Reverse);
     let zero_method = build_zero(&infos);
 
     quote! {
-        impl ::field_core::FieldData for #name {
+        impl #impl_generics ::field_core::FieldData for #name #ty_generics #where_clause {
             fn as_any(&self) -> &dyn ::std::any::Any { self }
             fn as_any_mut(&mut self) -> &mut dyn ::std::any::Any { self }
 
