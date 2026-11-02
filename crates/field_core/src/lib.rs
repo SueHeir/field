@@ -68,7 +68,8 @@ pub use field_data::{FieldData, FieldRegistry, FieldRegistryError};
 pub use field_derive::FieldData;
 pub use grass_mpi::OwnerMap;
 pub use halo::{
-    halo_exchange_forward, halo_exchange_forward_all, halo_exchange_reverse_all, HaloLink, HaloPlan,
+    halo_exchange_forward, halo_exchange_forward_all, halo_exchange_forward_all_with_corners,
+    halo_exchange_reverse_all, halo_exchange_reverse_all_with_corners, HaloLink, HaloPlan,
 };
 pub use hierarchy::MeshHierarchy;
 pub use map::StructuredMapView;
