@@ -66,6 +66,7 @@ pub use field_data::{FieldData, FieldRegistry, FieldRegistryError};
 /// `#[reverse]` / `#[zero]`-tagged `Vec<C: Component>` columns. (Same name as the
 /// [`FieldData`] trait, different namespace — like `serde::Serialize`.)
 pub use field_derive::FieldData;
+pub use grass_mpi::OwnerMap;
 pub use halo::{
     halo_exchange_forward, halo_exchange_forward_all, halo_exchange_reverse_all, HaloLink, HaloPlan,
 };

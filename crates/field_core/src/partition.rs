@@ -187,6 +187,37 @@ fn partition_span(global_n: usize, parts: usize, position: usize) -> (usize, usi
     }
 }
 
+/// The coupling contract: couplers address records through
+/// [`grass_mpi::OwnerMap`] and never need to name this type.
+impl grass_mpi::OwnerMap for PartitionDirectory {
+    fn owner_rank(&self, point: [f64; 3]) -> Option<i32> {
+        PartitionDirectory::owner_rank(self, point)
+    }
+
+    /// A fingerprint of the extents: equal on every rank for the same
+    /// partition, different after FIELD re-partitions.
+    fn version(&self) -> u64 {
+        // FNV-1a over the bit patterns, so it is identical on every rank.
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |bytes: [u8; 8]| {
+            for b in bytes {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        };
+        eat((self.role_size as u64).to_le_bytes());
+        let boxes = std::iter::once((-1, self.global))
+            .chain(self.extents.iter().map(|e| (e.role_rank, e.bounds)));
+        for (rank, b) in boxes {
+            eat((rank as i64).to_le_bytes());
+            for v in b.lo.iter().chain(&b.hi) {
+                eat(v.to_bits().to_le_bytes());
+            }
+        }
+        h
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,5 +278,32 @@ mod tests {
         );
         assert_eq!(directory.extents()[0].bounds.hi[0], 0.6);
         assert_eq!(directory.extents()[1].bounds.lo[0], 0.6);
+    }
+
+    #[test]
+    fn usable_through_the_grass_owner_map_contract() {
+        use grass_mpi::OwnerMap;
+        let config = UniformMeshConfig {
+            nx: 4,
+            ny: 2,
+            nz: 1,
+            bounds_lo: [0.0; 3],
+            bounds_hi: [1.0; 3],
+            ..Default::default()
+        };
+        let a = PartitionDirectory::from_uniform_config(&config, [2, 1, 1]);
+        let b = PartitionDirectory::from_uniform_config(&config, [1, 2, 1]);
+        let map: &dyn OwnerMap = &a;
+        for p in [
+            [0.1, 0.1, 0.5],
+            [0.9, 0.1, 0.5],
+            [0.6, 0.9, 0.5],
+            [2.0, 0.5, 0.5],
+        ] {
+            assert_eq!(map.owner_rank(p), a.owner_rank(p));
+        }
+        assert_eq!(map.owner_rank([0.9, 0.1, 0.5]), Some(1));
+        assert_eq!(map.version(), a.clone().version());
+        assert_ne!(OwnerMap::version(&a), OwnerMap::version(&b));
     }
 }
