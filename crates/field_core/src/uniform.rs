@@ -473,6 +473,29 @@ impl UniformMesh {
 
     /// x cell-center coordinate for a raw i index (handles ghosts via signed offset).
     #[inline]
+    /// The region this rank owns, as one [`crate::PartitionExtent`] for
+    /// `role_rank`. Every rank of a code can send its own extent to another
+    /// code, which assembles them with
+    /// [`crate::PartitionDirectory::from_extents`]: the code's real
+    /// partition, not one rebuilt from its config.
+    pub fn owned_extent(&self, role_rank: i32) -> crate::PartitionExtent {
+        let ng = self.ng;
+        let x_lo = self.origin[0] + self.offset[0] as f64 * self.dx;
+        let lo_of = |c: &[f64], d: &[f64]| c[ng] - 0.5 * d[ng];
+        let hi_of = |c: &[f64], d: &[f64], n: usize| c[ng + n - 1] + 0.5 * d[ng + n - 1];
+        crate::PartitionExtent {
+            role_rank,
+            bounds: crate::Bounds3::new(
+                [x_lo, lo_of(&self.y_arr, &self.dy_arr), lo_of(&self.z_arr, &self.dz_arr)],
+                [
+                    x_lo + self.ni as f64 * self.dx,
+                    hi_of(&self.y_arr, &self.dy_arr, self.nj),
+                    hi_of(&self.z_arr, &self.dz_arr, self.nk),
+                ],
+            ),
+        }
+    }
+
     fn x_center_raw(&self, ir: usize) -> f64 {
         let i_int = ir as i64 - self.ng as i64; // may be negative in the ghost band
         self.origin[0] + (self.offset[0] as i64 + i_int) as f64 * self.dx + 0.5 * self.dx
