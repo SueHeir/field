@@ -218,7 +218,11 @@ impl UniformMesh {
                 }
                 neighbor[dim][side] = rank_of(p[0], p[1], p[2]);
             }
-            if neighbor[dim] != [-1, -1] {
+            // A periodic axis on one rank links to itself; its ghosts can wrap
+            // round the interior more than once, so it may have fewer cells
+            // than ghost layers (a 1-cell-thick "2-D" axis).
+            let self_wrap = periodic[dim] && np[dim] == 1;
+            if neighbor[dim] != [-1, -1] && !self_wrap {
                 assert!(
                     local_n[dim] >= ng,
                     "UniformMesh: axis {dim} has {} local cells but ng = {ng} ghost layers; \
@@ -343,9 +347,37 @@ impl UniformMesh {
             }
             v
         };
+        // One layer along `dim` at raw index `d`.
+        let slab_at = |d: usize| -> Vec<usize> {
+            let mut v = Vec::with_capacity(r1.len() * r2.len());
+            for i1 in r1.clone() {
+                for i2 in r2.clone() {
+                    v.push(raw(d, i1, i2));
+                }
+            }
+            v
+        };
         // lo: send the first ng interior layers, recv into the lo ghosts.
         // hi: send the last ng interior layers, recv into the hi ghosts.
         let [lo, hi] = self.neighbor[dim];
+        if lo >= 0 && lo == hi && n[dim] < ng {
+            // Only a periodic axis on one rank gets here (checked at build):
+            // each ghost layer copies the interior layer it wraps onto, which
+            // can be the same layer for several ghosts.
+            let wrap = |layer: isize| ng + layer.rem_euclid(n[dim] as isize) as usize;
+            let mut send_cells = Vec::new();
+            let mut recv_cells = Vec::new();
+            for g in 0..ng {
+                // lo ghost layer g sits at logical index g - ng; hi ghost layer
+                // g at n + g.
+                send_cells.extend(slab_at(wrap(g as isize - ng as isize)));
+                recv_cells.extend(slab_at(g));
+                send_cells.extend(slab_at(wrap((n[dim] + g) as isize)));
+                recv_cells.extend(slab_at(ng + n[dim] + g));
+            }
+            links.push(HaloLink { rank: lo, send_cells, recv_cells });
+            return HaloPlan { links };
+        }
         if lo >= 0 && lo == hi {
             let mut send_cells = slab(ng);
             send_cells.extend(slab(n[dim]));
