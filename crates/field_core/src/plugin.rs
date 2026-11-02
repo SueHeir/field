@@ -37,9 +37,29 @@ impl Plugin for CommPlugin {
 /// Installs the [`FieldRegistry`] resource so physics can `register_field_data!`.
 pub struct FieldRegistryPlugin;
 
+/// Checkpoint entry name of every registered field's state.
+pub const FIELDS_ENTRY: &str = "field.fields";
+
 impl Plugin for FieldRegistryPlugin {
     fn build(&self, app: &mut App) {
         app.add_resource(FieldRegistry::new());
+        // Every registered field's state, for `grass_io::save_app` and coupled
+        // restarts. Fields are restored into stores already sized to the mesh.
+        use grass_io::CheckpointAppExt;
+        app.checkpoint_with(
+            FIELDS_ENTRY,
+            |app: &App| {
+                app.get_resource_ref::<FieldRegistry>()
+                    .expect("FieldRegistry")
+                    .pack_state_all()
+            },
+            |app: &App, bufs: Vec<Vec<f64>>| {
+                app.get_resource_ref::<FieldRegistry>()
+                    .expect("FieldRegistry")
+                    .unpack_state_all(&bufs)
+                    .unwrap_or_else(|e| panic!("restoring `{FIELDS_ENTRY}`: {e}"));
+            },
+        );
     }
 
     fn provides(&self) -> Vec<&str> {

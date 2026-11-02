@@ -136,3 +136,38 @@ fn derive_supports_const_generic_stores() {
     assert_eq!(reg.forward_size(), 9 + 19);
     assert_eq!(reg.get::<Populations<19>>().unwrap().f.len(), 4);
 }
+
+/// A checkpoint saves every column except `#[zero]` accumulators, and a
+/// registry restores them into a store sized to the same mesh.
+#[test]
+fn state_round_trips_without_accumulators() {
+    let make = || {
+        let mut reg = FieldRegistry::new();
+        reg.register(State::default());
+        reg.resize_all(3);
+        reg
+    };
+    let a = make();
+    {
+        let mut s = a.get_mut::<State>().unwrap();
+        s.u = vec![Duo { a: 1.0, b: -2.0 }, Duo { a: 0.5, b: 3.0 }, Duo { a: 7.0, b: 0.25 }];
+        s.flux = vec![9.0; 3];
+        s.backup = vec![Duo { a: 4.0, b: 4.5 }; 3];
+    }
+    let saved = a.pack_state_all();
+
+    let b = make();
+    b.unpack_state_all(&saved).unwrap();
+    let s = b.get::<State>().unwrap();
+    assert_eq!(s.u, a.get::<State>().unwrap().u);
+    assert_eq!(s.backup, vec![Duo { a: 4.0, b: 4.5 }; 3], "plain columns are state");
+    assert_eq!(s.flux, vec![0.0; 3], "accumulators are not state");
+
+    // A different mesh is refused, not silently half-filled.
+    let small = FieldRegistry::new();
+    let mut c = FieldRegistry::new();
+    c.register(State::default());
+    c.resize_all(2);
+    assert!(c.unpack_state_all(&saved).is_err());
+    assert!(small.unpack_state_all(&saved).is_err());
+}

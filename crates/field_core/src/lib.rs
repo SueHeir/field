@@ -81,6 +81,7 @@ pub use operator::CellVector;
 pub use partition::{Bounds3, PartitionDirectory, PartitionExtent};
 pub use plugin::{
     resize_fields, CommPlugin, FieldDefaultPlugins, FieldRegistryPlugin, UniformMeshPlugin,
+    FIELDS_ENTRY,
 };
 pub use schedule::MeshScheduleSet;
 pub use uniform::{DecompositionError, MeshPeriodicity, UniformMesh, UniformMeshConfig};
