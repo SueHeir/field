@@ -1,0 +1,28 @@
+[package]
+name = "field_gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GPU storage for FIELD on grass_gpu: per-cell columns that take part in ordinary halo exchange"
+keywords = ["gpu", "wgpu", "mesh", "simulation"]
+categories = ["simulation", "science"]
+
+[features]
+mpi_backend = ["field_core/mpi_backend", "grass_gpu/mpi_backend"]
+cuda = ["grass_gpu/cuda"]
+
+[dependencies]
+field_core = { path = "../field_core" }
+grass_app.workspace = true
+grass_gpu.workspace = true
+grass_scheduler.workspace = true
+
+[dev-dependencies]
+grass_mpi.workspace = true
+soil_core = { git = "https://github.com/SueHeir/soil.git", branch = "main", default-features = false, features = ["precision-double"] }
+soil_gpu = { git = "https://github.com/SueHeir/soil.git", branch = "main" }
+
+[[example]]
+name = "gpu_heat"
+required-features = ["mpi_backend"]
